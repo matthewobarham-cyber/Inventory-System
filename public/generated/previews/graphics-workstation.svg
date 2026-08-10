@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
+  <defs><radialGradient id="b"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf1f5"/></radialGradient><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#24496b"/><stop offset="1" stop-color="#1c2731"/></linearGradient></defs>
+  <rect width="420" height="320" fill="url(#b)"/>
+  <ellipse cx="210" cy="256" rx="112" ry="18" fill="#bcc5ce" opacity=".32"/>
+  <path d="M148 48h124q13 0 13 13v185H135V61q0-13 13-13z" fill="url(#g)" stroke="#17222c" stroke-width="5" stroke-linejoin="round"/><rect x="153" y="68" width="114" height="33" rx="4" fill="#101820"/><circle cx="210" cy="166" r="43" fill="#101820" stroke="#667986" stroke-width="7"/><circle cx="210" cy="166" r="12" fill="#2d7db5"/><rect x="161" y="225" width="58" height="8" rx="4" fill="#5f7280"/>
+  <text x="210" y="286" text-anchor="middle" font-family="Arial,sans-serif" font-weight="600" font-size="15" fill="#3d4954">Graphics Workstation</text>
+  </svg>

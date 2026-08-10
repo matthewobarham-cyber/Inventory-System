@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
+  <defs><radialGradient id="b"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf1f5"/></radialGradient><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#24496b"/><stop offset="1" stop-color="#1c2731"/></linearGradient></defs>
+  <rect width="420" height="320" fill="url(#b)"/>
+  <ellipse cx="210" cy="256" rx="112" ry="18" fill="#bcc5ce" opacity=".32"/>
+  <rect x="116" y="66" width="188" height="181" rx="17" fill="url(#g)" stroke="#17222c" stroke-width="5" stroke-linejoin="round"/><circle cx="210" cy="145" r="53" fill="#f1f2f4" stroke="#17222c" stroke-width="6"/><path d="M184 127q2-30 29-30 28 0 30 24 1 20-21 32-12 7-12 22" fill="none" stroke="#263945" stroke-width="12" stroke-linecap="round"/><circle cx="210" cy="198" r="8" fill="#263945"/>
+  <text x="210" y="286" text-anchor="middle" font-family="Arial,sans-serif" font-weight="600" font-size="15" fill="#3d4954">Other Equipment</text>
+  </svg>

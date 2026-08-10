@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
+  <defs><radialGradient id="b"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf1f5"/></radialGradient><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#475a68"/><stop offset="1" stop-color="#1c2731"/></linearGradient></defs>
+  <rect width="420" height="320" fill="url(#b)"/>
+  <ellipse cx="210" cy="256" rx="112" ry="18" fill="#bcc5ce" opacity=".32"/>
+  <rect x="87" y="96" width="246" height="128" rx="16" fill="url(#g)" stroke="#17222c" stroke-width="5" stroke-linejoin="round"/><path d="M120 96l-12-45M300 96l12-45" stroke="#263945" stroke-width="9" stroke-linecap="round"/><rect x="119" y="155" width="22" height="17" rx="2" fill="#101820"/><circle cx="130" cy="187" r="4" fill="#59c486"/><rect x="150" y="155" width="22" height="17" rx="2" fill="#101820"/><circle cx="161" cy="187" r="4" fill="#59c486"/><rect x="181" y="155" width="22" height="17" rx="2" fill="#101820"/><circle cx="192" cy="187" r="4" fill="#59c486"/><rect x="212" y="155" width="22" height="17" rx="2" fill="#101820"/><circle cx="223" cy="187" r="4" fill="#59c486"/><rect x="243" y="155" width="22" height="17" rx="2" fill="#101820"/><circle cx="254" cy="187" r="4" fill="#59c486"/><rect x="274" y="155" width="22" height="17" rx="2" fill="#101820"/><circle cx="285" cy="187" r="4" fill="#59c486"/>
+  <text x="210" y="286" text-anchor="middle" font-family="Arial,sans-serif" font-weight="600" font-size="15" fill="#3d4954">KVM Switch</text>
+  </svg>

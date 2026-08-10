@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
+  <defs><radialGradient id="b"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf1f5"/></radialGradient><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6a536f"/><stop offset="1" stop-color="#1c2731"/></linearGradient></defs>
+  <rect width="420" height="320" fill="url(#b)"/>
+  <ellipse cx="210" cy="256" rx="112" ry="18" fill="#bcc5ce" opacity=".32"/>
+  <ellipse cx="210" cy="99" rx="83" ry="51" fill="#f8f7f1" stroke="#17222c" stroke-width="6"/><path d="M127 99v106c0 28 166 28 166 0V99" fill="#eeede7" stroke="#17222c" stroke-width="6"/><ellipse cx="210" cy="99" rx="30" ry="19" fill="#293a44"/><path d="M253 214h86v37h-122" fill="#faf9f4" stroke="#9aa4aa" stroke-width="4"/>
+  <text x="210" y="286" text-anchor="middle" font-family="Arial,sans-serif" font-weight="600" font-size="15" fill="#3d4954">Thermal Paper Roll</text>
+  </svg>

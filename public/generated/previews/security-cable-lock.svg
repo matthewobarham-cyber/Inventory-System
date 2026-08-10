@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
+  <defs><radialGradient id="b"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf1f5"/></radialGradient><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#355f7c"/><stop offset="1" stop-color="#1c2731"/></linearGradient></defs>
+  <rect width="420" height="320" fill="url(#b)"/>
+  <ellipse cx="210" cy="256" rx="112" ry="18" fill="#bcc5ce" opacity=".32"/>
+  <path d="M86 188c-35-112 133-156 195-63 44 67-30 129-94 84-49-34-8-92 37-68" fill="none" stroke="#263945" stroke-width="13" stroke-linecap="round"/><rect x="277" y="151" width="77" height="83" rx="12" fill="url(#g)" stroke="#17222c" stroke-width="5" stroke-linejoin="round"/><path d="M296 151v-20q0-28 20-28t20 28v20" fill="none" stroke="#aab5bc" stroke-width="10"/><circle cx="316" cy="190" r="7" fill="#17222c"/>
+  <text x="210" y="286" text-anchor="middle" font-family="Arial,sans-serif" font-weight="600" font-size="15" fill="#3d4954">Equipment Security Cable Lock</text>
+  </svg>

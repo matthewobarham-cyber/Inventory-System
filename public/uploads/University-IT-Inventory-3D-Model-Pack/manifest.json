@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "units": "meters",
+  "models": [
+    {
+      "id": "usb-c-cable",
+      "name": "USB-C Cable",
+      "category": "Cables & adapters",
+      "file": "models/usb-c-cable.glb",
+      "preview": "previews/usb-c-cable.png",
+      "dimensions_m": {
+        "width": 0.416,
+        "height": 0.027,
+        "depth": 0.232
+      },
+      "triangles": 2016,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "hdmi-cable",
+      "name": "HDMI Cable",
+      "category": "Cables & adapters",
+      "file": "models/hdmi-cable.glb",
+      "preview": "previews/hdmi-cable.png",
+      "dimensions_m": {
+        "width": 0.474,
+        "height": 0.026,
+        "depth": 0.256
+      },
+      "triangles": 1864,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "display-adapter",
+      "name": "USB-C Display Adapter",
+      "category": "Cables & adapters",
+      "file": "models/display-adapter.glb",
+      "preview": "previews/display-adapter.png",
+      "dimensions_m": {
+        "width": 0.258,
+        "height": 0.033,
+        "depth": 0.086
+      },
+      "triangles": 164,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "xlr-cable",
+      "name": "XLR Cable",
+      "category": "Audio",
+      "file": "models/xlr-cable.glb",
+      "preview": "previews/xlr-cable.png",
+      "dimensions_m": {
+        "width": 0.48,
+        "height": 0.038,
+        "depth": 0.265
+      },
+      "triangles": 2368,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "blue-ethernet-cable",
+      "name": "Blue Ethernet Cable",
+      "category": "Networking",
+      "file": "models/blue-ethernet-cable.glb",
+      "preview": "previews/blue-ethernet-cable.png",
+      "dimensions_m": {
+        "width": 0.428,
+        "height": 0.031,
+        "depth": 0.245
+      },
+      "triangles": 2048,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "laptop-charger",
+      "name": "Laptop Charger",
+      "category": "Power",
+      "file": "models/laptop-charger.glb",
+      "preview": "previews/laptop-charger.png",
+      "dimensions_m": {
+        "width": 0.496,
+        "height": 0.074,
+        "depth": 0.223
+      },
+      "triangles": 1272,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "printer-toner",
+      "name": "Printer Toner Cartridge",
+      "category": "Printer consumables",
+      "file": "models/printer-toner.glb",
+      "preview": "previews/printer-toner.png",
+      "dimensions_m": {
+        "width": 0.3,
+        "height": 0.156,
+        "depth": 0.122
+      },
+      "triangles": 112,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "waste-toner",
+      "name": "Waste Toner Container",
+      "category": "Printer consumables",
+      "file": "models/waste-toner.glb",
+      "preview": "previews/waste-toner.png",
+      "dimensions_m": {
+        "width": 0.22,
+        "height": 0.21,
+        "depth": 0.105
+      },
+      "triangles": 96,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "printer-imaging-unit",
+      "name": "Printer Imaging Unit",
+      "category": "Printer consumables",
+      "file": "models/printer-imaging-unit.glb",
+      "preview": "previews/printer-imaging-unit.png",
+      "dimensions_m": {
+        "width": 0.31,
+        "height": 0.172,
+        "depth": 0.163
+      },
+      "triangles": 180,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "printer-transfer-belt",
+      "name": "Printer Transfer Belt",
+      "category": "Printer consumables",
+      "file": "models/printer-transfer-belt.glb",
+      "preview": "previews/printer-transfer-belt.png",
+      "dimensions_m": {
+        "width": 0.36,
+        "height": 0.078,
+        "depth": 0.204
+      },
+      "triangles": 188,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "surge-protector",
+      "name": "Surge Protector",
+      "category": "Power",
+      "file": "models/surge-protector.glb",
+      "preview": "previews/surge-protector.png",
+      "dimensions_m": {
+        "width": 0.462,
+        "height": 0.059,
+        "depth": 0.105
+      },
+      "triangles": 236,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "ups",
+      "name": "Uninterruptible Power Supply",
+      "category": "Power",
+      "file": "models/ups.glb",
+      "preview": "previews/ups.png",
+      "dimensions_m": {
+        "width": 0.22,
+        "height": 0.291,
+        "depth": 0.204
+      },
+      "triangles": 172,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "office-phone",
+      "name": "Landline Office Phone",
+      "category": "Communications",
+      "file": "models/office-phone.glb",
+      "preview": "previews/office-phone.png",
+      "dimensions_m": {
+        "width": 0.25,
+        "height": 0.125,
+        "depth": 0.224
+      },
+      "triangles": 812,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "professional-microphone",
+      "name": "Professional Microphone",
+      "category": "Audio",
+      "file": "models/professional-microphone.glb",
+      "preview": "previews/professional-microphone.png",
+      "dimensions_m": {
+        "width": 0.066,
+        "height": 0.333,
+        "depth": 0.065
+      },
+      "triangles": 1432,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "audio-mixer",
+      "name": "Audio Mixer",
+      "category": "Audio",
+      "file": "models/audio-mixer.glb",
+      "preview": "previews/audio-mixer.png",
+      "dimensions_m": {
+        "width": 0.36,
+        "height": 0.107,
+        "depth": 0.25
+      },
+      "triangles": 1392,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "projector-screen",
+      "name": "Projector White Screen",
+      "category": "Classroom AV",
+      "file": "models/projector-screen.glb",
+      "preview": "previews/projector-screen.png",
+      "dimensions_m": {
+        "width": 0.48,
+        "height": 0.665,
+        "depth": 0.387
+      },
+      "triangles": 304,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "microphone-stand",
+      "name": "Microphone Stand",
+      "category": "Audio",
+      "file": "models/microphone-stand.glb",
+      "preview": "previews/microphone-stand.png",
+      "dimensions_m": {
+        "width": 0.426,
+        "height": 0.612,
+        "depth": 0.403
+      },
+      "triangles": 560,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "external-hard-drive",
+      "name": "External Hard Drive",
+      "category": "Storage",
+      "file": "models/external-hard-drive.glb",
+      "preview": "previews/external-hard-drive.png",
+      "dimensions_m": {
+        "width": 0.318,
+        "height": 0.056,
+        "depth": 0.13
+      },
+      "triangles": 300,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "presentation-clicker",
+      "name": "Presentation Clicker",
+      "category": "Classroom AV",
+      "file": "models/presentation-clicker.glb",
+      "preview": "previews/presentation-clicker.png",
+      "dimensions_m": {
+        "width": 0.065,
+        "height": 0.051,
+        "depth": 0.18
+      },
+      "triangles": 468,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    }
+  ]
+}

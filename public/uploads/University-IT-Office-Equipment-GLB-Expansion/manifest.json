@@ -1,0 +1,306 @@
+{
+  "version": 1,
+  "units": "meters",
+  "models": [
+    {
+      "id": "laptop",
+      "name": "Professional Laptop",
+      "category": "Computers",
+      "file": "models/laptop.glb",
+      "preview": "previews/laptop.png",
+      "dimensions_m": {
+        "width": 0.32,
+        "height": 0.305,
+        "depth": 0.262
+      },
+      "triangles": 720,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "desktop-tower",
+      "name": "Desktop Tower",
+      "category": "Computers",
+      "file": "models/desktop-tower.glb",
+      "preview": "previews/desktop-tower.png",
+      "dimensions_m": {
+        "width": 0.19,
+        "height": 0.381,
+        "depth": 0.362
+      },
+      "triangles": 596,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "all-in-one-desktop",
+      "name": "All-in-One Desktop",
+      "category": "Computers",
+      "file": "models/all-in-one-desktop.glb",
+      "preview": "previews/all-in-one-desktop.png",
+      "dimensions_m": {
+        "width": 0.42,
+        "height": 0.4,
+        "depth": 0.193
+      },
+      "triangles": 180,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "desktop-speakers",
+      "name": "Desktop Speakers",
+      "category": "Audio",
+      "file": "models/desktop-speakers.glb",
+      "preview": "previews/desktop-speakers.png",
+      "dimensions_m": {
+        "width": 0.38,
+        "height": 0.23,
+        "depth": 0.158
+      },
+      "triangles": 720,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "laser-printer",
+      "name": "Desktop Laser Printer",
+      "category": "Printing",
+      "file": "models/laser-printer.glb",
+      "preview": "previews/laser-printer.png",
+      "dimensions_m": {
+        "width": 0.34,
+        "height": 0.309,
+        "depth": 0.312
+      },
+      "triangles": 84,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "multifunction-printer",
+      "name": "Multifunction Printer",
+      "category": "Printing",
+      "file": "models/multifunction-printer.glb",
+      "preview": "previews/multifunction-printer.png",
+      "dimensions_m": {
+        "width": 0.41,
+        "height": 0.497,
+        "depth": 0.351
+      },
+      "triangles": 276,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "projector",
+      "name": "Digital Projector",
+      "category": "Classroom AV",
+      "file": "models/projector.glb",
+      "preview": "previews/projector.png",
+      "dimensions_m": {
+        "width": 0.31,
+        "height": 0.144,
+        "depth": 0.298
+      },
+      "triangles": 376,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "wireless-mouse",
+      "name": "Wireless Mouse",
+      "category": "Peripherals",
+      "file": "models/wireless-mouse.glb",
+      "preview": "previews/wireless-mouse.png",
+      "dimensions_m": {
+        "width": 0.112,
+        "height": 0.091,
+        "depth": 0.189
+      },
+      "triangles": 604,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "wired-mouse",
+      "name": "Wired Optical Mouse",
+      "category": "Peripherals",
+      "file": "models/wired-mouse.glb",
+      "preview": "previews/wired-mouse.png",
+      "dimensions_m": {
+        "width": 0.197,
+        "height": 0.091,
+        "depth": 0.385
+      },
+      "triangles": 1660,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "keyboard",
+      "name": "Full-Size Keyboard",
+      "category": "Peripherals",
+      "file": "models/keyboard.glb",
+      "preview": "previews/keyboard.png",
+      "dimensions_m": {
+        "width": 0.45,
+        "height": 0.05,
+        "depth": 0.17
+      },
+      "triangles": 1168,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "monitor",
+      "name": "Office Monitor",
+      "category": "Displays",
+      "file": "models/monitor.glb",
+      "preview": "previews/monitor.png",
+      "dimensions_m": {
+        "width": 0.44,
+        "height": 0.403,
+        "depth": 0.15
+      },
+      "triangles": 168,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "docking-station",
+      "name": "Laptop Docking Station",
+      "category": "Peripherals",
+      "file": "models/docking-station.glb",
+      "preview": "previews/docking-station.png",
+      "dimensions_m": {
+        "width": 0.323,
+        "height": 0.056,
+        "depth": 0.119
+      },
+      "triangles": 264,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "webcam",
+      "name": "USB Webcam",
+      "category": "Communications",
+      "file": "models/webcam.glb",
+      "preview": "previews/webcam.png",
+      "dimensions_m": {
+        "width": 0.2,
+        "height": 0.147,
+        "depth": 0.11
+      },
+      "triangles": 456,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "flatbed-scanner",
+      "name": "Flatbed Document Scanner",
+      "category": "Imaging",
+      "file": "models/flatbed-scanner.glb",
+      "preview": "previews/flatbed-scanner.png",
+      "dimensions_m": {
+        "width": 0.36,
+        "height": 0.135,
+        "depth": 0.29
+      },
+      "triangles": 168,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "document-camera",
+      "name": "Document Camera",
+      "category": "Classroom AV",
+      "file": "models/document-camera.glb",
+      "preview": "previews/document-camera.png",
+      "dimensions_m": {
+        "width": 0.315,
+        "height": 0.498,
+        "depth": 0.19
+      },
+      "triangles": 256,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "usb-headset",
+      "name": "USB Office Headset",
+      "category": "Communications",
+      "file": "models/usb-headset.glb",
+      "preview": "previews/usb-headset.png",
+      "dimensions_m": {
+        "width": 0.409,
+        "height": 0.145,
+        "depth": 0.118
+      },
+      "triangles": 1308,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "wifi-router",
+      "name": "Wi-Fi Router",
+      "category": "Networking",
+      "file": "models/wifi-router.glb",
+      "preview": "previews/wifi-router.png",
+      "dimensions_m": {
+        "width": 0.28,
+        "height": 0.285,
+        "depth": 0.199
+      },
+      "triangles": 552,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "network-switch",
+      "name": "24-Port Network Switch",
+      "category": "Networking",
+      "file": "models/network-switch.glb",
+      "preview": "previews/network-switch.png",
+      "dimensions_m": {
+        "width": 0.44,
+        "height": 0.065,
+        "depth": 0.235
+      },
+      "triangles": 1188,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "wireless-access-point",
+      "name": "Wireless Access Point",
+      "category": "Networking",
+      "file": "models/wireless-access-point.glb",
+      "preview": "previews/wireless-access-point.png",
+      "dimensions_m": {
+        "width": 0.29,
+        "height": 0.085,
+        "depth": 0.29
+      },
+      "triangles": 1380,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    },
+    {
+      "id": "barcode-scanner",
+      "name": "Handheld Barcode Scanner",
+      "category": "Inventory tools",
+      "file": "models/barcode-scanner.glb",
+      "preview": "previews/barcode-scanner.png",
+      "dimensions_m": {
+        "width": 0.225,
+        "height": 0.302,
+        "depth": 0.284
+      },
+      "triangles": 148,
+      "format": "glTF Binary 2.0",
+      "up_axis": "Y"
+    }
+  ]
+}

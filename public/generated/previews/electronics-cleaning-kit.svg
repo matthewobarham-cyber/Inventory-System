@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
+  <defs><radialGradient id="b"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf1f5"/></radialGradient><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#496c5d"/><stop offset="1" stop-color="#1c2731"/></linearGradient></defs>
+  <rect width="420" height="320" fill="url(#b)"/>
+  <ellipse cx="210" cy="256" rx="112" ry="18" fill="#bcc5ce" opacity=".32"/>
+  <rect x="109" y="70" width="202" height="174" rx="13" fill="#f5f3ec" stroke="#17222c" stroke-width="6"/><rect x="136" y="103" width="148" height="70" rx="8" fill="url(#g)"/><rect x="151" y="188" width="18" height="39" rx="9" fill="#aab5bc" stroke="#17222c" stroke-width="3"/><rect x="185" y="188" width="18" height="39" rx="9" fill="#aab5bc" stroke="#17222c" stroke-width="3"/><rect x="219" y="188" width="18" height="39" rx="9" fill="#aab5bc" stroke="#17222c" stroke-width="3"/><rect x="253" y="188" width="18" height="39" rx="9" fill="#aab5bc" stroke="#17222c" stroke-width="3"/>
+  <text x="210" y="286" text-anchor="middle" font-family="Arial,sans-serif" font-weight="600" font-size="15" fill="#3d4954">Electronics Cleaning Kit</text>
+  </svg>
