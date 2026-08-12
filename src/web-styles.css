@@ -1,0 +1,197 @@
+/* Browser-only layout layer. The desktop shell continues to use styles.css. */
+:root[data-app-platform='web'] {
+  color-scheme: light;
+  --web-safe-top: env(safe-area-inset-top, 0px);
+  --web-safe-right: env(safe-area-inset-right, 0px);
+  --web-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --web-safe-left: env(safe-area-inset-left, 0px);
+}
+
+:root[data-app-platform='web'],
+:root[data-app-platform='web'] body,
+:root[data-app-platform='web'] #root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 100dvh;
+}
+
+:root[data-app-platform='web'] body {
+  overscroll-behavior: none;
+}
+
+.web-app .desktop-titlebar { display: none !important; }
+.web-app .app-shell { min-width: 0; min-height: 100dvh; }
+.web-app .app-workspace,
+.web-app .app-main { min-width: 0; min-height: 0; }
+.web-app .workspace-screen { padding: clamp(12px,2vw,24px); }
+
+/* Avoid a wide 3D surface escaping its card when the browser is resized. */
+.web-app canvas[data-model],
+.web-app [data-detail-model],
+.web-app [data-detail-model] canvas {
+  max-width: 100%;
+  max-height: 100%;
+  contain: layout paint size;
+}
+
+/* Generic safety for dense screen headers, toolbars and record actions. */
+.web-app :where(
+  .orders-toolbar,.maintenance-toolbar,.lifecycle-toolbar,.disposal-commandbar,
+  .requests-filter-bar,.low-stock-filter-grid,.scanner-session-strip
+) { max-width: 100%; }
+
+.web-app :where(
+  .order-actions,.maintenance-actions,.lifecycle-card-actions,.disposal-actions,
+  .workspace-nav-actions
+) { flex-wrap: wrap; }
+
+.web-app :where(
+  .maintenance-table,.stocktake-session-list,.stocktake-checklist,.low-stock-register,
+  .disposal-archive,.loan-history-table,.reports-table
+) { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+
+/* The browser entry owns normal responsive navigation instead of window chrome. */
+@media (max-width: 1180px) {
+  .web-app .app-sidebar { width: 210px !important; }
+  .web-app .app-sidebar-brand img { width: 178px !important; }
+  .web-app .workspace-nav-bar { padding-inline: 14px; }
+}
+
+@media (max-width: 960px) {
+  .web-app .app-sidebar { width: 76px !important; }
+  .web-app .app-sidebar-brand { min-height: 74px; padding: 13px 10px !important; justify-content: center; }
+  .web-app .app-sidebar-brand > div { align-items: center !important; }
+  .web-app .app-sidebar-brand img { content: url('../public/brand/msbm-crest.png'); width: 48px !important; max-height: 48px; object-fit: contain; }
+  .web-app .app-sidebar-brand-label,
+  .web-app .app-sidebar-label,
+  .web-app .app-sidebar-profile > div,
+  .web-app .app-sidebar-logout span,
+  .web-app .app-sidebar-footer > .btn-ghost:first-child { display: none !important; }
+  .web-app .app-sidebar-nav { padding: 5px 8px !important; align-items: stretch; }
+  .web-app .app-sidebar-link { width: 100%; padding: 0 !important; justify-content: center; position: relative; }
+  .web-app .app-sidebar-icon { width: 19px !important; height: 19px !important; }
+  .web-app .app-sidebar-count { min-width: 16px !important; height: 16px !important; padding: 0 4px !important; position: absolute; top: 2px; right: 2px; font-size: 8px !important; }
+  .web-app .app-sidebar-footer { padding: 8px !important; align-items: center; }
+  .web-app .app-sidebar-profile,
+  .web-app .app-sidebar-logout { width: 44px !important; justify-content: center; padding: 5px !important; }
+  .web-app .workspace-nav-title { flex-basis: 150px; }
+  .web-app .workspace-nav-search { flex-basis: 210px; width: min(210px,25vw); }
+}
+
+@media (max-width: 720px) {
+  .web-app .app-workspace { flex-direction: column; }
+  .web-app .app-main { order: 1; }
+  .web-app .app-sidebar {
+    width: 100% !important;
+    height: calc(68px + var(--web-safe-bottom));
+    order: 2;
+    flex-direction: row !important;
+    border-top: 1px solid #dfe3e9;
+    border-right: 0 !important;
+    padding-bottom: var(--web-safe-bottom);
+    box-shadow: 0 -8px 24px rgba(25,43,60,.08);
+  }
+  .web-app .app-sidebar-collapse { display: none !important; }
+  .web-app .app-sidebar-brand,
+  .web-app .app-sidebar-footer { display: none !important; }
+  .web-app .app-sidebar-nav {
+    width: 100%;
+    padding: 6px 8px !important;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 5px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none;
+  }
+  .web-app .app-sidebar-nav::-webkit-scrollbar { display: none; }
+  .web-app .app-sidebar-link {
+    width: auto;
+    min-width: 66px;
+    height: 52px !important;
+    flex: 0 0 auto;
+    padding: 5px 7px !important;
+    flex-direction: column;
+    gap: 4px !important;
+    justify-content: center;
+    text-align: center !important;
+  }
+  .web-app .app-sidebar-label {
+    display: block !important;
+    width: 100%;
+    flex: none !important;
+    overflow: hidden;
+    font-size: 8px;
+    line-height: 1.05;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .web-app .app-sidebar-count { top: 1px; right: 4px; }
+  .web-app .workspace-nav-bar {
+    height: auto;
+    min-height: 64px;
+    padding: 8px 10px;
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr) auto;
+    gap: 7px 9px;
+  }
+  .web-app .workspace-nav-controls { grid-column: 1; }
+  .web-app .workspace-nav-title { grid-column: 2; min-width: 0; }
+  .web-app .workspace-nav-actions { grid-column: 3; }
+  .web-app .workspace-nav-search {
+    width: 100%;
+    height: 36px;
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .web-app .workspace-nav-action { width: 36px; height: 36px; padding: 0; justify-content: center; }
+  .web-app .workspace-nav-action span { display: none; }
+  .web-app .workspace-screen { padding: 10px; }
+  .web-app :where(
+    .orders-hero,.maintenance-overview,.lifecycle-hero,.disposal-hero,
+    .requests-overview,.low-stock-overview,.scanner-hero
+  ) { border-radius: 15px; }
+  .web-app :where(
+    .barcode-modal-backdrop,.bulk-barcode-backdrop,.maintenance-email-backdrop,
+    .loan-email-backdrop,.disposal-modal-backdrop,.global-scan-backdrop,
+    .dashboard-notification-modal-backdrop,.request-decline-backdrop
+  ) { padding: 8px !important; }
+  .web-app :where(
+    .barcode-modal-card,.bulk-barcode-modal,.maintenance-email-modal,.loan-email-modal,
+    .disposal-modal,.global-scan-modal,.dashboard-notification-modal,.request-decline-modal
+  ) { width: 100% !important; max-width: 100% !important; max-height: calc(100dvh - 16px) !important; border-radius: 16px !important; }
+}
+
+@media (max-width: 620px) {
+  .web-app .login-shell { grid-template-columns: 1fr !important; overflow-y: auto; }
+  .web-app .login-visual-panel { display: none !important; }
+  .web-app .login-form-panel { min-height: 100dvh; padding: max(24px,var(--web-safe-top)) 20px max(24px,var(--web-safe-bottom)) !important; }
+  .web-app .login-form-card { margin: auto 0 !important; }
+  .web-app .workspace-nav-title small { display: none; }
+  .web-app .workspace-nav-title strong { font-size: 13px; }
+  .web-app .workspace-nav-controls button { width: 29px; height: 29px; }
+  .web-app .workspace-nav-actions { gap: 5px; }
+  .web-app :where(input,select,textarea,button) { min-height: 36px; }
+}
+
+@media (min-width: 621px) and (max-width: 960px) {
+  .web-app .login-shell { grid-template-columns: .82fr 1.18fr !important; }
+  .web-app .login-visual-panel { padding: 30px !important; }
+  .web-app .login-visual-panel [data-detail-model] { top: 18% !important; bottom: 24% !important; }
+  .web-app .login-form-panel { padding: 26px !important; }
+}
+
+@media (min-width: 1600px) {
+  .web-app .workspace-screen { padding-inline: clamp(24px,3vw,48px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .web-app *, .web-app *::before, .web-app *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

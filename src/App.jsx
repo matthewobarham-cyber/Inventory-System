@@ -8,11 +8,18 @@ import { loadPersisted, savePersisted, loadSessionPointer, saveSessionPointer, c
 import { sendHelpdeskMail } from './mailer.js';
 import { classifyEquipment } from './csv-import.js';
 import { Inv3D } from './three-engine.js';
+import {
+  supabaseConfigured, signInWithSupabase, loadSupabaseSessionAccount, listSupabaseAccounts,
+  createSupabaseAccount, updateSupabaseProfile, updateOwnSupabaseAvatar,
+  requestSupabasePasswordReset, updateSupabasePassword, subscribeToPasswordRecovery, signOutSupabase,
+  loadSupabaseCsvSnapshot, storeSupabaseCsvImport
+} from './supabase.js';
 
 import Titlebar from './components/Titlebar.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import TopBar from './components/TopBar.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
+import PasswordRecoveryModal from './components/PasswordRecoveryModal.jsx';
 import GlobalScanModal from './components/GlobalScanModal.jsx';
 import Toast from './components/Toast.jsx';
 import Dashboard from './components/Dashboard.jsx';
@@ -47,12 +54,7 @@ import { generateOrderApprovalPdf } from './order-approval-pdf.js';
 window.__inv3dSpeed = ROTATION_SPEED;
 const ACTIVE_REPAIR_STATES = ['Open', 'In progress', 'Awaiting vendor'];
 const LOCAL_PASSWORD_HASHES = {
-  'a.hosein@uwi.edu': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
-  'k.ramnarine@uwi.edu': '703b0a3d6ad75b649a28adde7d83c6251da457549263bc7ff45ec709b0a8448b',
-  'j.mohammed@uwi.edu': '10176e7b7b24d317acfcf8d2064cfd2f24e154f7b5a96603077d5ef813d6a6b6',
-  'audit@uwi.edu': '0b26f7caa1c2e5e3f11adfd22f47403ed214a1d4451117a18ea726b451a3aa61',
-  's.baptiste@uwi.edu': '10176e7b7b24d317acfcf8d2064cfd2f24e154f7b5a96603077d5ef813d6a6b6',
-  'r.khan@uwi.edu': '703b0a3d6ad75b649a28adde7d83c6251da457549263bc7ff45ec709b0a8448b'
+  'a.hosein@uwi.edu': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'
 };
 
 async function hashPassword(value) {
@@ -103,8 +105,15 @@ const formatMsbmAssetTag = (code, sequence, dateValue = new Date()) => {
 };
 
 function freshWorld() {
-  return { items: [], history: [], requests: [], orders: [], placements: [], stocktakes: [], repairTickets: [], maintenanceSchedules: [], lifecycleActions: [], procurementRecords: [], importRuns: [], auditLog: [], userState: {}, profileState: {}, customAccounts: [], reservedBarcodes: [], approvedVendors: [], approvalContacts: [], maintenanceContacts: [], loanContacts: [], consumableUsage: [] };
+  return { items: [], history: [], requests: [], orders: [], placements: [], stocktakes: [], repairTickets: [], maintenanceSchedules: [], lifecycleActions: [], procurementRecords: [], importRuns: [], csvCloudCursor: '', auditLog: [], userState: {}, profileState: {}, customAccounts: [], reservedBarcodes: [], approvedVendors: [], approvalContacts: [], maintenanceContacts: [], loanContacts: [], consumableUsage: [] };
 }
+
+const mergeCachedCsvRecords = (local = [], cloud = []) => {
+  const merged = new Map();
+  cloud.forEach((entry) => merged.set(entry.importKey || entry.id, entry));
+  local.forEach((entry) => merged.set(entry.importKey || entry.id, entry));
+  return Array.from(merged.values());
+};
 
 const MODEL_WARMUP_LIMIT = 64;
 const MODEL_WARMUP_TIMEOUT_MS = 1800;
@@ -158,6 +167,7 @@ function WorkspacePanel({ name, activeScreen, children }) {
 
 export default function App() {
   const [booted, setBooted] = useState(false);
+  const [persistenceEpoch, setPersistenceEpoch] = useState(0);
   const [session, setSession] = useState(null);
   const [loginPhase, setLoginPhase] = useState('');
   const [workspaceMounted, setWorkspaceMounted] = useState(false);
@@ -173,6 +183,7 @@ export default function App() {
   const [lifecycleActions, setLifecycleActions] = useState([]);
   const [procurementRecords, setProcurementRecords] = useState([]);
   const [importRuns, setImportRuns] = useState([]);
+  const [csvCloudCursor, setCsvCloudCursor] = useState('');
   const [auditLog, setAuditLog] = useState([]);
   const [seenAlertIds, setSeenAlertIds] = useState([]);
   const [alertPreferences, setAlertPreferences] = useState({ muted: true });
@@ -180,6 +191,8 @@ export default function App() {
   const [userState, setUserState] = useState({});
   const [profileState, setProfileState] = useState({});
   const [customAccounts, setCustomAccounts] = useState([]);
+  const [remoteAccounts, setRemoteAccounts] = useState([]);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [navOverrides, setNavOverrides] = useState(NAV);
   const [recentScans, setRecentScans] = useState([]);
   const [detectedScan, setDetectedScan] = useState(null);
@@ -193,7 +206,9 @@ export default function App() {
   const [blankBarcodeOpen, setBlankBarcodeOpen] = useState(false);
 
   const [screen, setScreen] = useState('dashboard');
+  const [sidebarMotion, setSidebarMotion] = useState('');
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
+  const [topActionSignal, setTopActionSignal] = useState({ screen: '', nonce: 0 });
   const [navigationAvailability, setNavigationAvailability] = useState({ back: false, forward: false });
   const [myProfileOpen, setMyProfileOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
@@ -244,6 +259,23 @@ export default function App() {
   const applyingNavigationHistory = useRef(false);
   const checkoutFinalizing = useRef(false);
   const lastGlobalScan = useRef({ value: '', at: 0 });
+  const csvSyncPromise = useRef(null);
+  const sidebarMotionTimer = useRef(null);
+
+  const handleSidebarCollapse = useCallback((collapsed) => {
+    if (sidebarMotionTimer.current) clearTimeout(sidebarMotionTimer.current);
+    setSidebarMotion(collapsed ? 'collapsing' : 'expanding');
+    sidebarMotionTimer.current = setTimeout(() => {
+      sidebarMotionTimer.current = null;
+      setSidebarMotion('');
+    }, 210);
+  }, []);
+
+  useEffect(() => () => {
+    if (sidebarMotionTimer.current) clearTimeout(sidebarMotionTimer.current);
+  }, []);
+
+  useEffect(() => subscribeToPasswordRecovery(() => setPasswordRecovery(true)), []);
 
   const enqueueDetectedScan = useCallback((scan) => {
     const at = new Date(scan.detectedAt).getTime();
@@ -258,6 +290,23 @@ export default function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => { setToastMsg(''); setToastAction(null); }, action ? 6500 : 2600);
   }, []);
+
+  const syncSharedCsvCache = async () => {
+    if (!supabaseConfigured) return { unchanged: true };
+    if (csvSyncPromise.current) return csvSyncPromise.current;
+    csvSyncPromise.current = (async () => {
+      const cloudCsv = await loadSupabaseCsvSnapshot(csvCloudCursor);
+      if (cloudCsv.unchanged) return cloudCsv;
+      setItems((current) => mergeCachedCsvRecords(current, cloudCsv.assets));
+      setProcurementRecords((current) => mergeCachedCsvRecords(current, cloudCsv.procurement));
+      setImportRuns((current) => mergeCachedCsvRecords(current, cloudCsv.runs));
+      setCsvCloudCursor(cloudCsv.cursor);
+      if (cloudCsv.assets.length) modelWarmup.current = Inv3D.preload(workspaceModelUrls(cloudCsv.assets));
+      return cloudCsv;
+    })();
+    try { return await csvSyncPromise.current; }
+    finally { csvSyncPromise.current = null; }
+  };
 
   const logAudit = useCallback((action, details) => {
     if (!session) return;
@@ -339,6 +388,7 @@ export default function App() {
       setLifecycleActions(world.lifecycleActions || []);
       setProcurementRecords(world.procurementRecords || []);
       setImportRuns(world.importRuns || []);
+      setCsvCloudCursor(world.csvCloudCursor || '');
       setAuditLog(world.auditLog || []);
       setSeenAlertIds(asArray(world.seenAlertIds));
       setAlertPreferences({ muted: true, ...(world.alertPreferences || {}) });
@@ -354,20 +404,56 @@ export default function App() {
       const normalizedNav = normalizeNavOverrides(world.navOverrides);
       setNavOverrides(normalizedNav);
 
-      const pointer = loadSessionPointer();
-      if (pointer) {
-        const acct = [...ACCOUNTS, ...asArray(world.customAccounts)].map((account) => ({ ...account, ...((world.profileState || {})[account.email] || {}) })).find((a) => a.email === pointer.email);
-        const active = acct && (world.userState || {})[acct.email] !== false;
-        if (acct && active) {
+      if (supabaseConfigured) {
+        const acct = await loadSupabaseSessionAccount();
+        if (acct) {
+          try {
+            const cloudCsv = await loadSupabaseCsvSnapshot(world.csvCloudCursor || '');
+            if (!cloudCsv.unchanged) {
+              const mergedItems = mergeCachedCsvRecords(migratedItems, cloudCsv.assets);
+              setItems(mergedItems);
+              setProcurementRecords(mergeCachedCsvRecords(world.procurementRecords || [], cloudCsv.procurement));
+              setImportRuns(mergeCachedCsvRecords(world.importRuns || [], cloudCsv.runs));
+              setCsvCloudCursor(cloudCsv.cursor);
+              modelWarmup.current = Inv3D.preload(workspaceModelUrls(mergedItems));
+            }
+          } catch (error) { console.error('Failed to refresh the shared CSV cache', error); }
+          let cloudAccounts = [acct];
+          try { cloudAccounts = await listSupabaseAccounts(); } catch (error) { console.error('Failed to load Supabase profiles', error); }
+          setRemoteAccounts(cloudAccounts);
+          setUserState((current) => ({ ...current, ...Object.fromEntries(cloudAccounts.map((entry) => [entry.email, entry.active !== false])) }));
           await waitForWarmup(modelWarmup.current);
           if (cancelled) return;
           setWorkspaceMounted(true);
           setSession(acct);
           setScreen(normalizedNav[acct.role]?.[0] || NAV[acct.role][0]);
+        } else {
+          const pointer = loadSessionPointer();
+          const demo = pointer?.source === 'demo' ? ACCOUNTS.find((entry) => entry.email === pointer.email) : null;
+          if (demo && (world.userState || {})[demo.email] !== false) {
+            await waitForWarmup(modelWarmup.current);
+            if (cancelled) return;
+            setWorkspaceMounted(true);
+            setSession({ ...demo, source: 'demo' });
+            setScreen(normalizedNav[demo.role]?.[0] || NAV[demo.role][0]);
+          } else if (pointer?.source === 'demo') clearSessionPointer();
         }
-        else clearSessionPointer();
+      } else {
+        const pointer = loadSessionPointer();
+        if (pointer) {
+          const acct = [...ACCOUNTS, ...asArray(world.customAccounts)].map((account) => ({ ...account, ...((world.profileState || {})[account.email] || {}) })).find((a) => a.email === pointer.email);
+          const active = acct && (world.userState || {})[acct.email] !== false;
+          if (acct && active) {
+            await waitForWarmup(modelWarmup.current);
+            if (cancelled) return;
+            setWorkspaceMounted(true);
+            setSession(acct);
+            setScreen(normalizedNav[acct.role]?.[0] || NAV[acct.role][0]);
+          } else clearSessionPointer();
+        }
       }
       hydrated.current = true;
+      setPersistenceEpoch((current) => current + 1);
       setBooted(true);
     })();
     return () => { cancelled = true; };
@@ -376,7 +462,7 @@ export default function App() {
   // ---- persist world on every mutation (skips the initial hydration write) ----
   useEffect(() => {
     if (!hydrated.current) return;
-    const snapshot = { items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage };
+    const snapshot = { items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage };
     let cancelled = false;
     let retryTimer = null;
     let saveTimer = null;
@@ -392,7 +478,7 @@ export default function App() {
     // Coalesce rapid UI mutations (typing, scans, bulk updates) into one disk write.
     saveTimer = setTimeout(attempt, 250);
     return () => { cancelled = true; if (saveTimer) clearTimeout(saveTimer); if (retryTimer) clearTimeout(retryTimer); };
-  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage]);
+  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, persistenceEpoch]);
 
   // Keep browser-style navigation local to the signed-in workspace.
   useEffect(() => {
@@ -439,8 +525,9 @@ export default function App() {
 
   // ---- 3D engine: resync whenever the visible canvases could have changed ----
   useEffect(() => {
-    if (!document.querySelector('canvas[data-model], [data-detail-model]')) return;
-    Inv3D.sync();
+    const activeWorkspace = document.querySelector('.workspace-screen.active');
+    if (!activeWorkspace?.querySelector('canvas[data-model], [data-detail-model]')) return;
+    Inv3D.sync(activeWorkspace);
   }, [screen, view, selectedId, items.length, filters, session]);
 
   useEffect(() => {
@@ -485,6 +572,8 @@ export default function App() {
 
   // ---- derived ----
   const role = session ? session.role : null;
+  const isDemoSession = session?.source === 'demo';
+  const cloudSession = supabaseConfigured && !isDemoSession;
   const isAdmin = role === 'Admin';
   const canEdit = role === 'Admin' || role === 'Student assistant';
   const canLoanNow = canEdit;
@@ -492,14 +581,37 @@ export default function App() {
   const availableScreens = role ? (navOverrides[role] || NAV[role]) : [];
   const canScan = availableScreens.includes('scan');
 
-  const activeItems = useMemo(() => items.filter((item) => !item.archived), [items]);
+  const stocktakeStateByItem = useMemo(() => {
+    const latest = new Map();
+    stocktakes.filter((entry) => entry.status !== 'Cancelled').forEach((stocktake) => {
+      Object.values(stocktake.observations || {}).forEach((observation) => {
+        if (!observation.itemId || observation.state === 'Unverified' || observation.state === 'Unexpected') return;
+        const recordedAt = observation.recordedAt || stocktake.completedAt || stocktake.createdAt || '';
+        const previous = latest.get(observation.itemId);
+        if (!previous || recordedAt >= previous.recordedAt) latest.set(observation.itemId, {
+          state: observation.state,
+          recordedAt,
+          sessionId: stocktake.id,
+          sessionTitle: stocktake.title,
+          note: observation.note || '',
+          scope: stocktake.scopeType === 'room' ? `${stocktake.building} · ${stocktake.room}` : stocktake.building
+        });
+      });
+    });
+    return latest;
+  }, [stocktakes]);
+  const displayItems = useMemo(() => items.map((item) => {
+    const result = stocktakeStateByItem.get(item.id);
+    return result ? { ...item, stocktakeState: result.state, stocktakeRecordedAt: result.recordedAt, stocktakeSessionId: result.sessionId, stocktakeSessionTitle: result.sessionTitle, stocktakeNote: result.note, stocktakeScope: result.scope } : item;
+  }), [items, stocktakeStateByItem]);
+  const activeItems = useMemo(() => displayItems.filter((item) => !item.archived), [displayItems]);
   const onLoan = useMemo(() => activeItems.filter((i) => i.status === 'On loan'), [activeItems]);
   const low = useMemo(() => activeItems.filter(isLowStock), [activeItems]);
   const pending = useMemo(() => requests.filter((r) => r.state === 'Pending'), [requests]);
   const pendingOrders = useMemo(() => orders.filter((o) => ['Pending', 'Partially received'].includes(o.status)), [orders]);
   const pendingRequisitions = useMemo(() => requests.filter((r) => r.type === 'Requisition' && r.state === 'Pending'), [requests]);
   const pendingPlacements = useMemo(() => placements.filter((p) => p.status === 'Pending'), [placements]);
-  const sel = useMemo(() => items.find((i) => i.id === selectedId) || null, [items, selectedId]);
+  const sel = useMemo(() => displayItems.find((i) => i.id === selectedId) || null, [displayItems, selectedId]);
   const selectedPendingOrder = useMemo(() => pendingOrders.find((order) => order.itemId === selectedId) || null, [pendingOrders, selectedId]);
   const selectedPendingPlacement = useMemo(() => pendingPlacements.find((placement) => placement.itemId === selectedId) || null, [pendingPlacements, selectedId]);
   const globallyScannedItem = useMemo(() => {
@@ -512,9 +624,10 @@ export default function App() {
     return reservedBarcodes.find((entry) => entry.status !== 'Voided' && String(entry.tag || '').toUpperCase() === detectedScan.value.toUpperCase()) || null;
   }, [reservedBarcodes, detectedScan]);
   const accounts = useMemo(() => {
-    const merged = new Map([...ACCOUNTS, ...customAccounts].map(({ passwordHash, ...account }) => [account.email, { ...account, ...(profileState[account.email] || {}) }]));
+    const source = supabaseConfigured && !isDemoSession ? remoteAccounts : [...ACCOUNTS, ...customAccounts];
+    const merged = new Map(source.map(({ passwordHash, ...account }) => [account.email, { ...account, ...(supabaseConfigured && !isDemoSession ? {} : (profileState[account.email] || {})) }]));
     return [...merged.values()];
-  }, [customAccounts, profileState]);
+  }, [customAccounts, profileState, remoteAccounts, isDemoSession]);
   const checkoutTsrs = useMemo(() => accounts.filter((account) => (account.tsr || account.role === 'Admin') && userState[account.email] !== false), [accounts, userState]);
   const maintenanceEmailContacts = useMemo(() => {
     const contacts = new Map();
@@ -541,6 +654,13 @@ export default function App() {
     let buffer = '';
     let startedAt = 0;
     let lastKeyAt = 0;
+    let longestKeyGap = 0;
+    const resetScannerBuffer = () => {
+      buffer = '';
+      startedAt = 0;
+      lastKeyAt = 0;
+      longestKeyGap = 0;
+    };
     const clearScannedTextFromField = (target, scannedValue) => {
       if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
       const current = String(target.value || '');
@@ -551,19 +671,32 @@ export default function App() {
       target.dispatchEvent(new Event('input', { bubbles: true }));
     };
     const detectScanner = (event) => {
-      if (event.ctrlKey || event.altKey || event.metaKey) { buffer = ''; return; }
-      const now = Date.now();
+      if (event.isComposing || event.repeat || event.ctrlKey || event.altKey || event.metaKey) { resetScannerBuffer(); return; }
+      const now = performance.now();
       if (event.key.length === 1) {
-        if (!buffer || now - lastKeyAt > 160) { buffer = ''; startedAt = now; }
+        if (!buffer || now - lastKeyAt > 100) resetScannerBuffer();
+        if (!buffer) startedAt = now;
+        else longestKeyGap = Math.max(longestKeyGap, now - lastKeyAt);
         buffer += event.key;
         lastKeyAt = now;
         return;
       }
-      if (event.key !== 'Enter' && event.key !== 'Tab') return;
+      if (event.key !== 'Enter' && event.key !== 'Tab') {
+        if (!['Shift', 'CapsLock'].includes(event.key)) resetScannerBuffer();
+        return;
+      }
       const value = buffer.trim();
       const duration = lastKeyAt - startedAt;
-      buffer = '';
-      if (value.length < 4 || duration > Math.max(900, value.length * 140)) return;
+      const terminatorGap = now - lastKeyAt;
+      const averageKeyGap = value.length > 1 ? duration / (value.length - 1) : Number.POSITIVE_INFINITY;
+      const maximumKeyGap = longestKeyGap;
+      const normalized = value.toUpperCase();
+      const isKnownBarcode = activeItems.some((item) => String(item.tag || '').toUpperCase() === normalized || String(item.serial || '').toUpperCase() === normalized)
+        || reservedBarcodes.some((entry) => entry.status !== 'Voided' && String(entry.tag || '').toUpperCase() === normalized);
+      resetScannerBuffer();
+      const minimumLength = isKnownBarcode ? 4 : 6;
+      const hasScannerCadence = terminatorGap <= 100 && maximumKeyGap <= 85 && averageKeyGap <= 55;
+      if (value.length < minimumLength || !hasScannerCadence) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       clearScannedTextFromField(event.target, value);
@@ -571,9 +704,15 @@ export default function App() {
     };
     document.addEventListener('keydown', detectScanner, true);
     return () => document.removeEventListener('keydown', detectScanner, true);
-  }, [session, screen, enqueueDetectedScan]);
+  }, [session, screen, activeItems, reservedBarcodes, enqueueDetectedScan]);
 
   const navCounts = { alerts: low.length, consumables: low.length, requests: pending.length, loans: onLoan.length, orders: pendingOrders.length, placements: pendingPlacements.length, disposal: lifecycleActions.filter((action) => ['Disposal', 'Donation', 'Write-off', 'Loss'].includes(action.type) && action.status === 'Pending approval').length };
+  const workflowAlerts = {
+    maintenance: repairTickets.some((ticket) => ticket.workflowUnread),
+    orders: orders.some((order) => order.workflowUnread),
+    placements: placements.some((placement) => placement.workflowUnread),
+    requests: requests.some((request) => request.workflowUnread)
+  };
 
   useEffect(() => {
     if (!session) return;
@@ -589,9 +728,20 @@ export default function App() {
     setScreen(key); setSelectedId(null);
   }, [low]);
   const handleSidebarNav = useCallback((key) => {
+    setFilters((current) => current.query ? { ...current, query: '' } : current);
     goScreen(key);
   }, [goScreen]);
-  const openItem = useCallback((id) => { setScreen('item'); setSelectedId(id); }, []);
+  const acknowledgeWorkflowRecord = useCallback((target, id) => {
+    if (target === 'maintenance') setRepairTickets((current) => current.map((entry) => entry.id === id ? { ...entry, workflowUnread: false } : entry));
+    if (target === 'orders') setOrders((current) => current.map((entry) => entry.id === id ? { ...entry, workflowUnread: false } : entry));
+    if (target === 'placements') setPlacements((current) => current.map((entry) => entry.id === id ? { ...entry, workflowUnread: false } : entry));
+    if (target === 'requests') setRequests((current) => current.map((entry) => entry.id === id ? { ...entry, workflowUnread: false } : entry));
+  }, []);
+  const openItem = useCallback((id) => {
+    setFilters((current) => current.query ? { ...current, query: '' } : current);
+    setScreen('item');
+    setSelectedId(id);
+  }, []);
 
   const openDashboardSummary = useCallback((target) => {
     const destinations = { assets: 'inventory', inventory: 'inventory', loans: 'loans', alerts: 'alerts', requests: 'requests', orders: 'orders', placements: 'placements', reports: 'reports' };
@@ -648,20 +798,46 @@ export default function App() {
     setFilters((f) => ({ ...f, query: val }));
     setScreen((s) => (s === 'item' ? (items.find((item) => item.id === selectedId)?.consumable ? 'consumables' : 'inventory') : s));
   }, [items, selectedId]);
+  const submitGlobalSearch = useCallback(() => {
+    const term = filters.query.trim().toLowerCase();
+    if (!term) return;
+    const matches = activeItems.filter((item) => [item.name, item.tag, item.serial, item.location, item.room, item.category, item.model]
+      .some((value) => String(value || '').toLowerCase().includes(term)));
+    const exact = matches.find((item) => [item.tag, item.serial, item.name].some((value) => String(value || '').toLowerCase() === term));
+    if (exact || matches.length === 1) openItem((exact || matches[0]).id);
+  }, [activeItems, filters.query, openItem]);
 
   // ---- auth ----
   const login = async (email, pass, remember) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const account = accounts.find((entry) => entry.email.toLowerCase() === normalizedEmail);
-    const custom = customAccounts.find((entry) => entry.email.toLowerCase() === normalizedEmail);
-    const expectedHash = LOCAL_PASSWORD_HASHES[normalizedEmail] || custom?.passwordHash;
-    if (!account || userState[account.email] === false || !expectedHash || await hashPassword(pass) !== expectedHash) return { error: 'Invalid email or password.' };
-    saveSessionPointer({ email: account.email }, remember);
+    let account;
+    if (supabaseConfigured) {
+      try {
+        account = await signInWithSupabase(normalizedEmail, pass);
+        let cloudAccounts = [account];
+        try { cloudAccounts = await listSupabaseAccounts(); } catch (profileError) { console.error('Failed to refresh Supabase profiles', profileError); }
+        setRemoteAccounts(cloudAccounts);
+        setUserState((current) => ({ ...current, ...Object.fromEntries(cloudAccounts.map((entry) => [entry.email, entry.active !== false])) }));
+      } catch (authError) {
+        return { error: authError?.message || 'Invalid email or password.' };
+      }
+    } else {
+      account = accounts.find((entry) => entry.email.toLowerCase() === normalizedEmail);
+      const custom = customAccounts.find((entry) => entry.email.toLowerCase() === normalizedEmail);
+      const expectedHash = LOCAL_PASSWORD_HASHES[normalizedEmail] || custom?.passwordHash;
+      if (!account || userState[account.email] === false || !expectedHash || await hashPassword(pass) !== expectedHash) return { error: 'Invalid email or password.' };
+      saveSessionPointer({ email: account.email }, remember);
+    }
     setWorkspaceMounted(false);
     setLoginPhase('Opening your secure workspace');
     setSession(account);
     setScreen((navOverrides[account.role] || NAV[account.role])[0]);
     await afterNextPaint();
+    if (supabaseConfigured) {
+      setLoginPhase('Synchronizing the shared CSV archive');
+      try { await syncSharedCsvCache(); }
+      catch (syncError) { console.error('Shared CSV sync failed; continuing with the local cache', syncError); }
+    }
     setWorkspaceMounted(true);
     setLoginPhase('Preparing inventory, consumables, and dashboard');
     await afterNextPaint();
@@ -674,9 +850,10 @@ export default function App() {
     return {};
   };
   const demoLogin = async (email, remember) => {
-    const account = accounts.find((entry) => entry.email === email && ACCOUNTS.some((demo) => demo.email === entry.email));
+    const demo = ACCOUNTS.find((entry) => entry.email === email);
+    const account = demo ? { ...demo, source: 'demo' } : null;
     if (!account || userState[account.email] === false) return { error: 'This demo account is unavailable.' };
-    saveSessionPointer({ email: account.email }, remember);
+    saveSessionPointer({ email: account.email, source: 'demo' }, remember);
     setWorkspaceMounted(false);
     setLoginPhase('Opening your secure workspace');
     setSession(account);
@@ -693,7 +870,8 @@ export default function App() {
     setLoginPhase('');
     return {};
   };
-  const logout = () => {
+  const logout = async () => {
+    if (cloudSession) await signOutSupabase();
     clearSessionPointer();
     setMyProfileOpen(false);
     setSession(null);
@@ -702,6 +880,27 @@ export default function App() {
     setScreen('dashboard');
     setSelectedId(null);
     setFilters({ query: '', fCategory: 'All categories', fLocation: 'All buildings', fStatus: 'All statuses' });
+  };
+  const requestPasswordReset = async (email) => {
+    if (!supabaseConfigured) return { error: 'Password recovery is available after Supabase is configured.' };
+    try {
+      await requestSupabasePasswordReset(email);
+      return {};
+    } catch (resetError) {
+      return { error: resetError?.message || 'The recovery email could not be sent.' };
+    }
+  };
+  const completePasswordReset = async (password) => {
+    try {
+      await updateSupabasePassword(password);
+      await signOutSupabase();
+      setPasswordRecovery(false);
+      setSession(null);
+      setWorkspaceMounted(false);
+      return {};
+    } catch (resetError) {
+      return { error: resetError?.message || 'The password could not be updated.' };
+    }
   };
 
   // ---- asset form ----
@@ -965,7 +1164,7 @@ export default function App() {
       vendorContact: matchedVendor?.contact || '',
       vendorEmail: matchedVendor?.email || '',
       vendorPhone: matchedVendor?.phone || '',
-      qty: suggestedQty || Math.max(1, it.min * 2),
+      qty: suggestedQty || Math.max(1, (Number(it.min || 0) * 2) - Number(it.qty || 0)),
       unitCost: it.cost || 0,
       expectedOn: iso(new Date(today().getTime() + 14 * 864e5)),
       requisitionNumber,
@@ -973,7 +1172,7 @@ export default function App() {
       notes: '',
       labelsRequired: true,
       labelFormat: it.consumable ? 'Stock / bin barcode label' : 'Individual asset barcode per unit',
-      labelCopies: it.consumable ? 1 : (suggestedQty || Math.max(1, it.min * 2)),
+      labelCopies: it.consumable ? 1 : (suggestedQty || Math.max(1, (Number(it.min || 0) * 2) - Number(it.qty || 0))),
       labelNotes: ''
     });
     setOrderOpen(true);
@@ -1010,6 +1209,7 @@ export default function App() {
     if (!Number.isFinite(qty) || qty < 1) { setOrderError('Order quantity must be at least 1.'); return; }
     if (!Number.isFinite(unitCost) || unitCost < 0) { setOrderError('Enter a valid unit cost.'); return; }
     if (!orderForm.expectedOn) { setOrderError('Choose an expected delivery date.'); return; }
+    if (orderForm.expectedOn < iso(today())) { setOrderError('Expected delivery cannot be in the past.'); return; }
     const labelCopies = parseInt(orderForm.labelCopies, 10);
     if (orderForm.labelsRequired !== false && (!Number.isFinite(labelCopies) || labelCopies < 1)) { setOrderError('Enter how many labels should be prepared.'); return; }
 
@@ -1028,21 +1228,19 @@ export default function App() {
       const requisitionNumber = orderDraft.requisitionNumber || `REQ-${iso(today()).replaceAll('-', '')}-${String(createdAt).slice(-5)}`;
       const order = {
         id: `ord${createdAt}`, ...orderDraft, requisitionNumber,
-        orderedOn: iso(today()), orderedBy: session.name, approvedBy: session.name, approvedOn: iso(today()), status: 'Pending'
+        orderedOn: iso(today()), orderedBy: session.name, approvedBy: session.name, approvedOn: iso(today()), status: 'Pending', workflowUnread: screen !== 'orders'
       };
       setOrders((current) => [order, ...current]);
       setOrderOpen(false);
       setFilters((current) => ({ ...current, query: '' }));
-      setScreen('orders');
-      setSelectedId(null);
       logAudit('Pending order created', `${order.name}: ${order.qty} units from ${order.supplier} — ${order.requisitionNumber}`);
-      toast(`Pending order created — ${requisitionNumber}`);
+      toast(`Pending order created — ${requisitionNumber}. Pending Orders has a new notification.`);
       return;
     }
     setRequests((prev) => [{
       id: 'req' + Date.now(), type: 'Requisition', itemId: it.id, itemName: it.name, model: it.model,
       by: session.name, when: 'Submitted just now', need: `${qty} units from ${supplier} · ${money(qty * unitCost)}`,
-      submittedOn: iso(today()), state: 'Pending', orderDraft
+      submittedOn: iso(today()), state: 'Pending', orderDraft, workflowUnread: screen !== 'requests'
     }, ...prev]);
     setOrderOpen(false);
     toast('Reorder requisition submitted for admin / manager approval');
@@ -1210,15 +1408,13 @@ export default function App() {
         return [{ id: `itm${Date.now()}`, model: model.id, name: model.name, category: model.cat, consumable: true, rank: model.rank, tag: nextAssetTag(model.id), serial: '', location: order.location, room: order.room, qty: usableQty, min: 0, condition: 'New', cost: order.unitCost, supplier: order.supplier, assignedTo: '', purchased: receivedOn, warranty: '', status: 'In stock', loanCount: 0, borrower: null, due: null, since: null, receivedOn, receivedBy: session.name, receivedCompany: order.supplier, receiptSource: 'order' }, ...current];
       });
     } else if (usableQty > 0) {
-      const placement = { id: `plc${Date.now()}`, orderId: order.id, itemId: order.itemId, model: order.model, name: order.name, supplier: order.supplier, unitCost: order.unitCost, location: order.location, room: order.room, reference: order.purchaseOrderNumber || order.requisitionNumber || order.reference, requisitionNumber: order.requisitionNumber || order.reference || '', purchaseOrderNumber: order.purchaseOrderNumber || '', labelsRequired: order.labelsRequired !== false, labelFormat: order.labelFormat, labelCopies: order.labelCopies, labelNotes: order.labelNotes, receivedOn, receivedBy: session.name, receivedQty: usableQty, damagedQty, receiptNote: receiveForm.note.trim(), remainingQty: usableQty, invoiceRequired: true, invoiceGenerated: false, status: 'Pending' };
+      const placement = { id: `plc${Date.now()}`, orderId: order.id, itemId: order.itemId, model: order.model, name: order.name, supplier: order.supplier, unitCost: order.unitCost, location: order.location, room: order.room, reference: order.purchaseOrderNumber || order.requisitionNumber || order.reference, requisitionNumber: order.requisitionNumber || order.reference || '', purchaseOrderNumber: order.purchaseOrderNumber || '', labelsRequired: order.labelsRequired !== false, labelFormat: order.labelFormat, labelCopies: order.labelCopies, labelNotes: order.labelNotes, receivedOn, receivedBy: session.name, receivedQty: usableQty, damagedQty, receiptNote: receiveForm.note.trim(), remainingQty: usableQty, invoiceRequired: true, invoiceGenerated: false, status: 'Pending', workflowUnread: screen !== 'placements' };
       setPlacements((current) => [placement, ...current]);
-      setScreen('placements');
-      startSerializedPlacement(placement, items.find((item) => item.id === order.itemId));
     }
     setOrders((current) => current.map((entry) => entry.id === order.id ? { ...entry, status: remainingQty > 0 ? 'Partially received' : 'Received', remainingQty, receivedOn, receivedBy: session.name, damagedQty: Number(entry.damagedQty || 0) + damagedQty, receiptNotes: [...(entry.receiptNotes || []), receipt], invoiceRequired: true, invoiceGenerated: entry.invoiceGenerated || false } : entry));
     setReceiveOrderId(null);
     logAudit('Order received', `${order.name} — ${receivedQty} delivered, ${damagedQty} damaged, ${remainingQty} remaining`);
-    toast(model?.cons === 1 ? `Stock increased by ${usableQty}` : remainingQty > 0 ? 'Partial receipt recorded — continue asset setup' : 'Order received — continue asset setup');
+    toast(model?.cons === 1 ? `Stock increased by ${usableQty}` : remainingQty > 0 ? 'Partial receipt recorded — Assignment has a new notification' : 'Order received — Assignment has a new notification');
   };
 
   // ---- checkout / check-in ----
@@ -1319,9 +1515,7 @@ export default function App() {
     sendHelpdeskMail(`Loan check-in: ${it.tag}`, `Asset: ${it.name} (${it.tag})\nBorrower: ${it.borrower}\nChecked in: ${iso(today())}\nReceived by: ${session.name}\nDisposition: ${ciForm.disposition}\nNotes: ${ciForm.notes || 'None'}`);
     if (maintenanceTicket) {
       setFilters((current) => ({ ...current, query: '' }));
-      setScreen('maintenance');
-      setSelectedId(null);
-      toast(`${it.name} checked in and sent to maintenance — ${maintenanceTicket.id}`);
+      toast(`${it.name} checked in — Maintenance has a new ticket (${maintenanceTicket.id})`);
     } else {
       toast(it.name + ' checked in');
     }
@@ -1340,7 +1534,7 @@ export default function App() {
     }
     setRequests((prev) => [{
       id: 'rq' + Date.now(), itemId: sel.id, itemName: sel.name, itemTag: sel.tag, model: sel.model, by: session.name, byEmail: session.email,
-      statusSnapshot: sel.status, when: 'Requested just now', submittedOn: iso(today()), need: 'Awaiting IT approval', state: 'Pending'
+      statusSnapshot: sel.status, when: 'Requested just now', submittedOn: iso(today()), need: 'Awaiting IT approval', state: 'Pending', workflowUnread: screen !== 'requests'
     }, ...prev]);
     toast('Request sent for ' + sel.name);
   };
@@ -1352,7 +1546,7 @@ export default function App() {
       const requisitionNumber = r.orderDraft.requisitionNumber || `REQ-${iso(today()).replaceAll('-', '')}-${String(Date.now()).slice(-5)}`;
       setOrders((prev) => [{
         id: 'ord' + Date.now(), ...r.orderDraft, requisitionId: r.id, requisitionNumber,
-        orderedOn: iso(today()), orderedBy: r.by, approvedBy: session.name, approvedOn: iso(today()), status: 'Pending'
+        orderedOn: iso(today()), orderedBy: r.by, approvedBy: session.name, approvedOn: iso(today()), status: 'Pending', workflowUnread: true
       }, ...prev]);
       toast('Requisition approved — vendor order details generated');
       return;
@@ -1519,20 +1713,29 @@ export default function App() {
   };
 
   // ---- users ----
-  const toggleUser = (email, active) => {
+  const toggleUser = async (email, active) => {
     const target = accounts.find((account) => account.email === email);
     if (!target) return false;
     if (active && email === session.email) { toast('You cannot suspend your own account'); return false; }
     const otherActiveAdmins = accounts.filter((account) => account.email !== email && account.role === 'Admin' && userState[account.email] !== false);
     if (active && target.role === 'Admin' && otherActiveAdmins.length === 0) { toast('The last active administrator cannot be suspended'); return false; }
+    if (cloudSession) {
+      try {
+        const updated = await updateSupabaseProfile(email, { active: !active });
+        setRemoteAccounts((current) => current.map((entry) => entry.email === email ? updated : entry));
+      } catch (error) {
+        toast(error?.message || 'The cloud account status could not be updated.');
+        return false;
+      }
+    }
     setUserState((prev) => ({ ...prev, [email]: !active }));
     logAudit(active ? 'User suspended' : 'User restored', `${target.name} (${email})`);
     toast(target.name + (active ? ' suspended' : ' restored'));
     return true;
   };
 
-  const updateUserProfile = (email, changes) => {
-    if (!isAdmin) return;
+  const updateUserProfile = async (email, changes) => {
+    if (!isAdmin) return false;
     const target = accounts.find((account) => account.email === email);
     if (!target) return false;
     if (email === session.email && changes.role && changes.role !== 'Admin') { toast('You cannot remove your own administrator role'); return false; }
@@ -1540,7 +1743,16 @@ export default function App() {
       const otherActiveAdmins = accounts.filter((account) => account.email !== email && account.role === 'Admin' && userState[account.email] !== false);
       if (otherActiveAdmins.length === 0) { toast('The last active administrator cannot be demoted'); return false; }
     }
-    setProfileState((prev) => ({ ...prev, [email]: { ...(prev[email] || {}), ...changes } }));
+    if (cloudSession) {
+      try {
+        const updated = await updateSupabaseProfile(email, changes);
+        setRemoteAccounts((current) => current.map((entry) => entry.email === email ? updated : entry));
+      } catch (error) {
+        toast(error?.message || 'The cloud profile could not be updated.');
+        return false;
+      }
+    }
+    if (!cloudSession) setProfileState((prev) => ({ ...prev, [email]: { ...(prev[email] || {}), ...changes } }));
     if (session.email === email) {
       setSession((current) => ({ ...current, ...changes }));
       if (changes.role && !(navOverrides[changes.role] || NAV[changes.role]).includes(screen)) setScreen((navOverrides[changes.role] || NAV[changes.role])[0]);
@@ -1550,9 +1762,18 @@ export default function App() {
     return true;
   };
 
-  const updateOwnAvatar = (avatar) => {
+  const updateOwnAvatar = async (avatar) => {
     if (!session) return;
-    setProfileState((prev) => ({ ...prev, [session.email]: { ...(prev[session.email] || {}), avatar } }));
+    if (cloudSession) {
+      try {
+        await updateOwnSupabaseAvatar(avatar);
+        setRemoteAccounts((current) => current.map((entry) => entry.email === session.email ? { ...entry, avatar } : entry));
+      } catch (error) {
+        toast(error?.message || 'The profile picture could not be saved to Supabase.');
+        return;
+      }
+    }
+    if (!cloudSession) setProfileState((prev) => ({ ...prev, [session.email]: { ...(prev[session.email] || {}), avatar } }));
     setSession((current) => ({ ...current, avatar }));
     toast(avatar ? 'Profile picture updated' : 'Profile picture removed');
   };
@@ -1561,13 +1782,34 @@ export default function App() {
     if (!isAdmin) return { error: 'Only administrators can create user accounts.' };
     const email = account.email.trim().toLowerCase();
     if (accounts.some((entry) => entry.email.toLowerCase() === email)) return { error: 'An account already uses that campus email.' };
-    const passwordHash = await hashPassword(account.pass);
-    const created = { ...account, email, passwordHash, lastSeen: 'Never', tsr: !!account.tsr };
-    delete created.pass;
-    setCustomAccounts((current) => [...current, created]);
+    let created;
+    if (cloudSession) {
+      try {
+        created = await createSupabaseAccount({ ...account, email });
+        setRemoteAccounts((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      } catch (error) {
+        return { error: error?.message || 'The Supabase account could not be created.' };
+      }
+    } else {
+      const passwordHash = await hashPassword(account.pass);
+      created = { ...account, email, passwordHash, lastSeen: 'Never', tsr: !!account.tsr };
+      delete created.pass;
+      setCustomAccounts((current) => [...current, created]);
+    }
     setUserState((current) => ({ ...current, [email]: true }));
     toast('User account created — ' + created.name);
     return { account: created };
+  };
+
+  const sendAccountPasswordReset = async (email) => {
+    if (!isAdmin) return { error: 'Only administrators can send account recovery emails.' };
+    const result = await requestPasswordReset(email);
+    if (!result.error) {
+      const target = accounts.find((account) => account.email === email);
+      logAudit('Password reset requested', `${target?.name || email} (${email})`);
+      toast(`Recovery email requested for ${target?.name || email}`);
+    }
+    return result;
   };
 
   const updateRoleAccess = (targetRole, targetScreen, enabled) => {
@@ -1584,7 +1826,7 @@ export default function App() {
     return true;
   };
 
-  const importCsvData = ({ files, assets: interpretedAssets, procurement: interpretedProcurement }) => {
+  const importCsvData = async ({ files, assets: interpretedAssets, procurement: interpretedProcurement }) => {
     if (!isAdmin) return { error: 'Only administrators can import company data.' };
     const assetKeys = new Set(items.map((item) => item.importKey).filter(Boolean));
     const serials = new Set(items.map((item) => (item.serial || '').trim().toLowerCase()).filter(Boolean));
@@ -1626,12 +1868,21 @@ export default function App() {
       importedProcurement.push({ ...record, id: `csv-proc-${Date.now()}-${index}` });
       procurementKeys.add(record.importKey);
     });
+    const run = { id: `csv-run-${Date.now()}`, files: files.map((file) => file.fileName), assets: importedAssets.length, procurement: importedProcurement.length, skipped, by: session.name, when: new Date().toLocaleString() };
+    if (cloudSession) {
+      try {
+        const stored = await storeSupabaseCsvImport({ assets: importedAssets, procurement: importedProcurement, run });
+        setCsvCloudCursor(stored.cursor);
+      } catch (cloudError) {
+        console.error('Failed to store CSV import in Supabase', cloudError);
+        return { error: `Supabase could not store this CSV import: ${cloudError?.message || 'Unknown cloud storage error'}` };
+      }
+    }
     if (importedAssets.length) setItems((current) => [...current, ...importedAssets]);
     if (importedProcurement.length) setProcurementRecords((current) => [...importedProcurement, ...current]);
-    const run = { id: `csv-run-${Date.now()}`, files: files.map((file) => file.fileName), assets: importedAssets.length, procurement: importedProcurement.length, skipped, by: session.name, when: new Date().toLocaleString() };
     setImportRuns((current) => [run, ...current]);
-    toast(`CSV import completed — ${importedAssets.length + importedProcurement.length} records stored`);
-    return { assets: importedAssets.length, procurement: importedProcurement.length, skipped };
+    toast(`CSV import completed — ${importedAssets.length + importedProcurement.length} records stored${cloudSession ? ' in Supabase' : ''}`);
+    return { assets: importedAssets.length, procurement: importedProcurement.length, skipped, cloud: cloudSession };
   };
 
   const createStocktake = ({ scopeType, building, room, title }) => {
@@ -1765,7 +2016,7 @@ export default function App() {
       id: `RPR-${createdAt.slice(0, 10).replaceAll('-', '')}-${String(Date.now()).slice(-5)}`,
       itemName: item.name, itemTag: item.tag, itemSerial: item.serial, itemLocation: item.location, itemRoom: item.room,
       previousStatus: draft.previousStatus || (item.status === 'Maintenance' ? 'In stock' : item.status),
-      status: ACTIVE_REPAIR_STATES.includes(draft.status) ? draft.status : 'Open', createdAt, createdBy: session.name,
+      status: ACTIVE_REPAIR_STATES.includes(draft.status) ? draft.status : 'Open', createdAt, createdBy: session.name, workflowUnread: screen !== 'maintenance',
       updatedAt: createdAt, updatedBy: session.name,
       activity: [{ at: createdAt, by: session.name, text: 'Repair ticket created' }]
     };
@@ -1957,25 +2208,43 @@ export default function App() {
     return true;
   };
 
+  if (passwordRecovery) return <PasswordRecoveryModal onSave={completePasswordReset} />;
+
   if (!booted) {
     return <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: '#f5f6f8', color: '#7b8794', fontSize: 13 }}>Loading…</div>;
   }
 
   if (!session) {
-    return <LoginScreen accounts={ACCOUNTS} onLogin={login} onDemoLogin={demoLogin} />;
+    return <LoginScreen accounts={ACCOUNTS} onLogin={login} onDemoLogin={demoLogin} onRequestPasswordReset={requestPasswordReset} cloudEnabled={supabaseConfigured} />;
   }
 
   const screenKey = screen === 'item' ? (sel?.consumable ? 'consumables' : 'inventory') : ['audit', 'access'].includes(screen) ? 'users' : screen;
   const screenTitle = LABELS[screenKey][0] + (screen === 'item' && sel ? ' / ' + sel.name : '');
+  const signalTopAction = (target) => setTopActionSignal({ screen: target, nonce: Date.now() });
+  const clearTopActionSignal = () => setTopActionSignal((current) => current.screen ? { ...current, screen: '' } : current);
+  const topBarAction = (() => {
+    if (screen === 'consumables' || (screen === 'item' && sel?.consumable)) return { label: 'New consumable', run: () => openAdd('printer-toner') };
+    if (screen === 'stocktakes') return { label: 'New stocktake', run: () => signalTopAction('stocktakes') };
+    if (screen === 'maintenance') return { label: 'New repair ticket', run: () => signalTopAction('maintenance') };
+    if (screen === 'lifecycle') return { label: 'New lifecycle request', run: () => signalTopAction('lifecycle') };
+    if (screen === 'disposal') return { label: 'New disposal request', run: () => signalTopAction('disposal') };
+    if (screen === 'scan') return { label: 'Generate barcodes', run: () => setBlankBarcodeOpen(true) };
+    if (screen === 'loans') return { label: 'Find asset to loan', run: () => { setFilters({ query: '', fCategory: 'All categories', fLocation: 'All buildings', fStatus: 'In stock' }); goScreen('inventory'); } };
+    if (screen === 'alerts') return { label: 'Add consumable', run: () => openAdd('printer-toner') };
+    if (screen === 'orders') return { label: 'Review low stock', run: () => goScreen(availableScreens.includes('alerts') ? 'alerts' : 'consumables') };
+    if (screen === 'placements' && pendingPlacements.length) return { label: 'Set up next asset', run: () => openPlacementAsset(pendingPlacements[0].id) };
+    if (['dashboard', 'inventory', 'item'].includes(screen)) return { label: 'New asset', run: () => openAdd() };
+    return null;
+  })();
   const buildLabel = 'v1.0.0 · ' + (role === 'Admin' ? 'full access' : role === 'Auditor' ? 'read only' : role);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#f5f6f8' }}>
+    <div className="app-shell" style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#f5f6f8' }}>
       <Titlebar buildLabel={buildLabel} />
       {saveError && <div role="alert" style={{ flex: 'none', padding: '9px 16px', background: '#9f1d17', color: '#fff', fontSize: 12.5, fontWeight: 600, textAlign: 'center' }}>{saveError}</div>}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <Sidebar role={role} navItems={availableScreens} screen={screen} itemSection={sel?.consumable ? 'consumables' : 'inventory'} counts={navCounts} hasNewAlert={hasNewAlert} alertMuted={alertPreferences.muted} onToggleAlertSound={() => setAlertPreferences((current) => ({ ...current, muted: !current.muted }))} onNav={handleSidebarNav} session={session} onOpenProfile={() => setMyProfileOpen(true)} onLogout={logout} />
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <div className="app-workspace" data-sidebar-motion={sidebarMotion || undefined} style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        <Sidebar role={role} navItems={availableScreens} screen={screen} itemSection={sel?.consumable ? 'consumables' : 'inventory'} counts={navCounts} workflowAlerts={workflowAlerts} hasNewAlert={hasNewAlert} alertMuted={alertPreferences.muted} onToggleAlertSound={() => setAlertPreferences((current) => ({ ...current, muted: !current.muted }))} onNav={handleSidebarNav} session={session} onOpenProfile={() => setMyProfileOpen(true)} onLogout={logout} onCollapseChange={handleSidebarCollapse} />
+        <div className="app-main" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <TopBar
             title={screenTitle}
             subtitle={LABELS[screenKey][1]}
@@ -1986,12 +2255,13 @@ export default function App() {
             onRefresh={() => setWorkspaceRefreshKey((current) => current + 1)}
             query={filters.query}
             onQuery={onQuery}
+            onSearchSubmit={submitGlobalSearch}
             showSearch={['inventory', 'consumables', 'item', 'maintenance', 'lifecycle', 'disposal', 'history', 'orders', 'placements'].includes(screen)}
             canScan={canScan}
             onScan={() => goScreen('scan')}
-            canEdit={canEdit}
-            onNewAsset={() => openAdd(screen === 'consumables' ? 'printer-toner' : undefined)}
-            newLabel={screen === 'consumables' ? 'New consumable' : 'New asset'}
+            canEdit={canEdit && !!topBarAction}
+            onNewAsset={topBarAction?.run}
+            newLabel={topBarAction?.label}
           />
           <div key={workspaceRefreshKey} className="workspace-screen-stack">
             {workspaceMounted && <>
@@ -2012,29 +2282,29 @@ export default function App() {
               />
             </div>}
             {availableScreens.includes('inventory') && <div className={`workspace-screen${screen === 'inventory' ? ' active' : ''}`} data-app-content-scroll="true" aria-hidden={screen !== 'inventory'}>
-              <Inventory resetKey={inventoryResetKey} items={items.filter((item) => !item.consumable)} filters={filters} setFilters={setFilters} view={view} setView={setView} onOpenItem={openItem} canDelete={isAdmin} onDelete={permanentlyDeleteItem} />
+              <Inventory resetKey={inventoryResetKey} items={displayItems.filter((item) => !item.consumable)} filters={filters} setFilters={setFilters} view={view} setView={setView} onOpenItem={openItem} canDelete={isAdmin} onDelete={permanentlyDeleteItem} />
             </div>}
             {availableScreens.includes('consumables') && <div className={`workspace-screen${screen === 'consumables' ? ' active' : ''}`} data-app-content-scroll="true" aria-hidden={screen !== 'consumables'}>
-              <Consumables items={items} usage={consumableUsage} query={filters.query} canManage={canEdit} scannerAction={consumableScannerAction} onScannerActionHandled={() => setConsumableScannerAction(null)} onUse={useConsumable} onAddStock={addConsumableStock} onCreateTonerMovement={createPrinterTonerMovement} onBulkUse={useConsumablesBulk} onSetCompatibility={setConsumablePrinterCompatibility} onCreateInk={(color, printerId) => { openAdd('printer-toner'); setForm((current) => ({ ...current, color, compatiblePrinterIds: [printerId] })); }} onReorder={openReorder} onOpenItem={openItem} />
+              <Consumables items={displayItems} usage={consumableUsage} query={filters.query} canManage={canEdit} scannerAction={consumableScannerAction} onScannerActionHandled={() => setConsumableScannerAction(null)} onUse={useConsumable} onAddStock={addConsumableStock} onCreateTonerMovement={createPrinterTonerMovement} onBulkUse={useConsumablesBulk} onSetCompatibility={setConsumablePrinterCompatibility} onCreateInk={(color, printerId) => { openAdd('printer-toner'); setForm((current) => ({ ...current, color, compatiblePrinterIds: [printerId] })); }} onReorder={openReorder} onOpenItem={openItem} />
             </div>}
             {availableScreens.includes('stocktakes') && <WorkspacePanel name="stocktakes" activeScreen={screen}>
-              <Stocktakes items={activeItems} sessions={stocktakes} sessionUser={session} canManage={canEdit}
+              <Stocktakes items={activeItems} sessions={stocktakes} sessionUser={session} canManage={canEdit} createSignal={topActionSignal.screen === 'stocktakes' ? topActionSignal.nonce : 0} onCreateSignalHandled={clearTopActionSignal}
                 onCreate={createStocktake} onRecord={recordStocktakeObservation} onRemove={removeStocktakeObservation} onComplete={completeStocktake} onCancel={cancelStocktake} onDelete={deleteStocktake} onOpenItem={openItem} />
             </WorkspacePanel>}
             {availableScreens.includes('maintenance') && <WorkspacePanel name="maintenance" activeScreen={screen}>
-              <Maintenance items={activeItems} tickets={repairTickets} schedules={maintenanceSchedules}
+              <Maintenance items={activeItems} tickets={repairTickets} schedules={maintenanceSchedules} createSignal={topActionSignal.screen === 'maintenance' ? topActionSignal.nonce : 0} onCreateSignalHandled={clearTopActionSignal}
                 technicians={accounts.filter((account) => account.tsr || account.role === 'Admin' || account.role === 'Student assistant').map((account) => account.name)}
                 emailContacts={maintenanceEmailContacts} sender={session}
-                query={filters.query} canManage={canEdit} onCreateTicket={createRepairTicket} onUpdateTicket={updateRepairTicket}
+                query={filters.query} canManage={canEdit} onCreateTicket={createRepairTicket} onUpdateTicket={updateRepairTicket} onAcknowledge={(id) => acknowledgeWorkflowRecord('maintenance', id)}
                 onCreateSchedule={createMaintenanceSchedule} onUpdateSchedule={updateMaintenanceSchedule} onAddEmailContact={addMaintenanceContact} onEmailPrepared={markMaintenanceEmailPrepared} onOpenItem={openItem} />
             </WorkspacePanel>}
             {availableScreens.includes('lifecycle') && <WorkspacePanel name="lifecycle" activeScreen={screen}>
-              <Lifecycle items={activeItems} actions={lifecycleActions} query={filters.query} canManage={canEdit} canApprove={isAdmin}
+              <Lifecycle items={activeItems} actions={lifecycleActions} query={filters.query} canManage={canEdit} canApprove={isAdmin} createSignal={topActionSignal.screen === 'lifecycle' ? topActionSignal.nonce : 0} onCreateSignalHandled={clearTopActionSignal}
                 onUpdateAsset={updateAssetLifecycle} onCreateAction={createLifecycleAction} onDecide={decideLifecycleAction}
                 onComplete={completeLifecycleAction} onOpenItem={openItem} />
             </WorkspacePanel>}
             {availableScreens.includes('disposal') && <WorkspacePanel name="disposal" activeScreen={screen}>
-              <Disposal items={activeItems} actions={lifecycleActions} query={filters.query} canManage={canEdit} canApprove={isAdmin}
+              <Disposal items={activeItems} actions={lifecycleActions} query={filters.query} canManage={canEdit} canApprove={isAdmin} createSignal={topActionSignal.screen === 'disposal' ? topActionSignal.nonce : 0} onCreateSignalHandled={clearTopActionSignal}
                 onCreateAction={createLifecycleAction} onDecide={decideLifecycleAction} onComplete={completeLifecycleAction}
                 onCancel={cancelLifecycleAction} onOpenItem={openItem} />
             </WorkspacePanel>}
@@ -2069,24 +2339,24 @@ export default function App() {
               <LoanHistory history={history} stillOutCount={onLoan.length} isStaff={isStaff} sessionName={session.name} query={filters.query} onOpenItem={openItem} />
             </WorkspacePanel>}
             {availableScreens.includes('requests') && <WorkspacePanel name="requests" activeScreen={screen}>
-              <Requests requests={requests} role={role} sessionName={session.name} focusRequestId={dashboardRequestFocus.id} focusNonce={dashboardRequestFocus.nonce} onApprove={approveRequest} onDecline={declineRequest} />
+              <Requests requests={requests} role={role} sessionName={session.name} focusRequestId={dashboardRequestFocus.id} focusNonce={dashboardRequestFocus.nonce} onApprove={approveRequest} onDecline={declineRequest} onAcknowledge={(id) => acknowledgeWorkflowRecord('requests', id)} />
             </WorkspacePanel>}
             {availableScreens.includes('alerts') && <WorkspacePanel name="alerts" activeScreen={screen}>
               <Alerts items={activeItems} pendingOrders={pendingOrders} pendingPlacements={pendingPlacements} canEdit={canEdit} onOpenItem={openItem} onReorder={openReorder} onViewOrder={(id) => setOrderDetailsId(id)} onOpenPlacements={() => goScreen('placements')} />
             </WorkspacePanel>}
             {availableScreens.includes('orders') && <WorkspacePanel name="orders" activeScreen={screen}>
-              <PendingOrders orders={orders} query={filters.query} canReceive={canEdit} onOpenItem={openItem} onReceive={receiveOrder} onViewOrder={(id) => setOrderDetailsId(id)} onPreviewApproval={previewOrderApproval} onSendApproval={(id) => setApprovalOrderId(id)} />
+              <PendingOrders orders={orders} query={filters.query} canReceive={canEdit} onOpenItem={openItem} onReceive={receiveOrder} onViewOrder={(id) => setOrderDetailsId(id)} onPreviewApproval={previewOrderApproval} onSendApproval={(id) => setApprovalOrderId(id)} onAcknowledge={(id) => acknowledgeWorkflowRecord('orders', id)} />
             </WorkspacePanel>}
             {availableScreens.includes('placements') && <WorkspacePanel name="placements" activeScreen={screen}>
-              <PlacementQueue placements={placements} items={activeItems} query={filters.query} canSetUp={canEdit} onSetUp={openPlacementAsset} />
+              <PlacementQueue placements={placements} items={activeItems} query={filters.query} canSetUp={canEdit} onSetUp={openPlacementAsset} onAcknowledge={(id) => acknowledgeWorkflowRecord('placements', id)} />
             </WorkspacePanel>}
             {availableScreens.includes('scan') && <WorkspacePanel name="scan" activeScreen={screen}>
-              <Scan items={activeItems} recentScans={recentScans} reservedBarcodes={reservedBarcodes} canManageLoans={canLoanNow} isActive={screen === 'scan'} onScan={doScan} onSimulate={simulateScan} onOpenItem={openItem} onOpenStocktakes={() => goScreen('stocktakes')} onGenerateBlankLabels={() => setBlankBarcodeOpen(true)} />
+              <Scan items={activeItems} placements={placements} recentScans={recentScans} reservedBarcodes={reservedBarcodes} canManageLoans={canLoanNow} isActive={screen === 'scan'} onScan={doScan} onSimulate={simulateScan} onOpenItem={openItem} onOpenStocktakes={() => goScreen('stocktakes')} onGenerateBlankLabels={() => setBlankBarcodeOpen(true)} />
             </WorkspacePanel>}
             {availableScreens.includes('reports') && <WorkspacePanel name="reports" activeScreen={screen}>
               <Reports items={items} history={history} tickets={repairTickets} orders={orders} procurementRecords={procurementRecords} />
             </WorkspacePanel>}
-            {availableScreens.includes('settings') && <WorkspacePanel name="settings" activeScreen={screen}><Settings isAdmin={isAdmin} accounts={accounts} userState={userState} navConfig={navOverrides} auditEntries={auditLog} importRuns={importRuns} procurementRecords={procurementRecords} vendors={approvedVendors} approvalContacts={approvalContacts} items={items} orders={orders} onImport={importCsvData} onSaveVendor={saveApprovedVendor} onToggleVendor={toggleApprovedVendor} onSaveApprovalContact={saveApprovalContact} onToggleApprovalContact={toggleApprovalContact} onAccessChange={updateRoleAccess} onToggle={toggleUser} onUpdateProfile={updateUserProfile} onCreateAccount={createUserAccount} /></WorkspacePanel>}
+            {availableScreens.includes('settings') && <WorkspacePanel name="settings" activeScreen={screen}><Settings isAdmin={isAdmin} accounts={accounts} userState={userState} navConfig={navOverrides} auditEntries={auditLog} importRuns={importRuns} procurementRecords={procurementRecords} vendors={approvedVendors} approvalContacts={approvalContacts} items={items} orders={orders} accountStorage={cloudSession ? 'Supabase secured' : 'Demo data stored locally'} onImport={importCsvData} onSaveVendor={saveApprovedVendor} onToggleVendor={toggleApprovedVendor} onSaveApprovalContact={saveApprovalContact} onToggleApprovalContact={toggleApprovalContact} onAccessChange={updateRoleAccess} onToggle={toggleUser} onUpdateProfile={updateUserProfile} onCreateAccount={createUserAccount} onResetPassword={cloudSession ? sendAccountPasswordReset : null} /></WorkspacePanel>}
             </>}
           </div>
         </div>

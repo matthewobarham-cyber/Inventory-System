@@ -7,13 +7,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "vite --open /web.html",
     "dev:full": "npm run dev:electron",
     "build": "vite build",
+    "preview:web": "vite preview --open /web.html",
     "generate:models": "node scripts/generate-model-pack.mjs",
     "generate:laptop-model": "node scripts/generate-macbook-air-model.mjs",
     "generate:mouse-models": "node scripts/generate-mouse-models.mjs",
     "generate:printer-models": "node scripts/generate-printer-models.mjs",
     "generate:toner-models": "node scripts/generate-toner-models.mjs",
+    "generate:login-model": "node scripts/generate-login-workstation.mjs",
     "electron": "node scripts/launch-electron.mjs",
     "start": "npm run build && node scripts/launch-electron.mjs",
     "dev:electron": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 node scripts/launch-electron.mjs\"",
@@ -24,6 +27,8 @@
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.1.0",
     "@fontsource/ibm-plex-sans": "^5.1.0",
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.3",
     "html2canvas": "^1.4.1",
     "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
@@ -49,6 +54,9 @@
     ],
     "directories": {
       "output": "release"
+    },
+    "win": {
+      "icon": "public/brand/msbm-app-icon.ico"
     }
   }
 }

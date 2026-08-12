@@ -3,6 +3,7 @@ import { MODELS, glbUrl, money, thumbStyle, statusTagStyle, CARD_MIN_WIDTH, effS
 import BulkBarcodeModal from './BulkBarcodeModal.jsx';
 import SortableHeader, { nextSort, sortRows } from './SortableHeader.jsx';
 import { Inv3D } from '../three-engine.js';
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 const STATUS_OPTIONS = ['All statuses', 'In stock', 'On loan', 'Low stock', 'Maintenance', 'Retired'];
 const RECENT_INVENTORY_DAYS = 14;
@@ -25,7 +26,6 @@ function recentDateLabel(date) {
 function TypePreview({ model }) {
   return (
     <span className="equipment-preview equipment-preview--compact" style={{ width: 66, height: 50, flex: 'none' }}>
-      <span className="dashboard-model-loader" aria-hidden="true" />
       <canvas className="equipment-preview__canvas" data-model={glbUrl(model.id)} aria-label={`${model.name} 3D preview`} />
     </span>
   );
@@ -56,44 +56,59 @@ function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
   const positions = webPositions(visibleOptions.length, webWidth, webHeight);
   const centerTitle = groupBy === 'location' ? 'Inventory locations' : category || 'Equipment catalogue';
   const centerSubtitle = groupBy === 'location' ? `${options.length} active locations` : category ? `${visibleOptions.length} available types` : `${categoryOptions.length} categories`;
+  const visibleRecords = visibleOptions.reduce((total, option) => total + Number(option.count || 0), 0);
+  const nodeAccents = ['#0a3d7c', '#315f8f', '#52779b', '#234f78', '#6c8297', '#183f68'];
 
   return (
-    <div style={{ minHeight: webHeight + 70, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 48%,#f9fbfd 0,#f3f7fb 44%,#e9eff6 100%)', border: '1px solid #d7e0e9', borderRadius: 12, boxShadow: 'inset 0 1px 0 #fff' }}>
-      <div style={{ position: 'relative', zIndex: 4, padding: '17px 18px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid rgba(200,213,226,.75)', background: 'rgba(255,255,255,.72)', backdropFilter: 'blur(8px)' }}>
-        <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <strong style={{ fontSize: 14 }}>Explore inventory</strong>
-          <span style={{ color: '#6f7c89', fontSize: 11.5 }}>{groupBy === 'location' ? 'Select a connected campus location to open its records.' : category ? 'Select an equipment node to open that dataset.' : 'Choose a category, then select an equipment type.'}</span>
+    <div className="inventory-web-map" style={{ minHeight: webHeight + 104 }}>
+      <div className="inventory-web-toolbar">
+        <span className="inventory-web-heading">
+          <small><i /> INVENTORY EXPLORER</small>
+          <strong>{groupBy === 'location' ? 'Campus asset network' : category ? `${category} equipment` : 'Equipment intelligence map'}</strong>
+          <p>{groupBy === 'location' ? 'Select a connected building to inspect every asset held at that location.' : category ? 'Choose an equipment type to open its complete inventory register.' : 'Move from a broad equipment family into its individual tracked types.'}</p>
         </span>
-        <span style={{ padding: 4, display: 'flex', gap: 3, background: '#e9eef4', borderRadius: 9 }}>
-          <button type="button" onClick={() => onChangeMode('location')} style={webModeStyle(groupBy === 'location')}>Location web</button>
-          <button type="button" onClick={() => onChangeMode('type')} style={webModeStyle(groupBy === 'type')}>Equipment web</button>
+        <span className="inventory-web-toolbar-stats">
+          <span><small>VISIBLE RECORDS</small><strong>{visibleRecords.toLocaleString()}</strong></span>
+          <span><small>{groupBy === 'location' ? 'BUILDINGS' : category ? 'ITEM TYPES' : 'CATEGORIES'}</small><strong>{visibleOptions.length}</strong></span>
         </span>
-        {category && <button type="button" className="btn-ghost" onClick={() => setCategory('')} style={{ height: 34, padding: '0 11px', borderRadius: 8, fontSize: 11.5, fontWeight: 600 }}>Back to categories</button>}
+        <span className="inventory-web-mode-switch">
+          <button type="button" data-active={groupBy === 'location'} onClick={() => onChangeMode('location')}><WebNodeIcon category="" location /> Locations</button>
+          <button type="button" data-active={groupBy === 'type'} onClick={() => onChangeMode('type')}><WebNodeIcon category="Computers" /> Equipment</button>
+        </span>
+        {category && <button type="button" className="inventory-web-back" onClick={() => setCategory('')}>← All categories</button>}
       </div>
 
-      <div style={{ position: 'relative', height: webHeight }}>
-        <div aria-hidden="true" style={{ position: 'absolute', inset: 0, opacity: .34, backgroundImage: 'radial-gradient(#9db2c7 1px,transparent 1px)', backgroundSize: '22px 22px' }} />
-        <svg viewBox={`0 0 ${webWidth} ${webHeight}`} preserveAspectRatio="none" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}>
+      <div className="inventory-web-canvas" style={{ height: webHeight }}>
+        <div className="inventory-web-grid" aria-hidden="true" />
+        <div className="inventory-web-orbit inventory-web-orbit--outer" aria-hidden="true" />
+        <div className="inventory-web-orbit inventory-web-orbit--inner" aria-hidden="true" />
+        <svg className="inventory-web-links" viewBox={`0 0 ${webWidth} ${webHeight}`} preserveAspectRatio="none" aria-hidden="true">
           <defs><linearGradient id="inventory-link" x1="0" x2="1"><stop stopColor="#9bb7d3" stopOpacity=".32"/><stop offset=".5" stopColor="#0a3d7c" stopOpacity=".58"/><stop offset="1" stopColor="#9bb7d3" stopOpacity=".32"/></linearGradient></defs>
-          {positions.map((position, index) => <g key={visibleOptions[index]?.value || index}><line x1={webWidth / 2} y1={webHeight / 2} x2={position.x} y2={position.y} stroke="url(#inventory-link)" strokeWidth="2"/><circle cx={position.x} cy={position.y} r="4" fill="#0a3d7c" opacity=".5"/></g>)}
+          {positions.map((position, index) => <g key={visibleOptions[index]?.value || index}><line className="inventory-web-link" pathLength="1" style={{ animationDelay: `${35 + Math.min(index, 12) * 15}ms` }} x1={webWidth / 2} y1={webHeight / 2} x2={position.x} y2={position.y} stroke="url(#inventory-link)" strokeWidth="2"/><line className="inventory-web-flow" pathLength="1" style={{ animationDelay: `${500 + (index % 7) * 210}ms` }} x1={webWidth / 2} y1={webHeight / 2} x2={position.x} y2={position.y}/><circle className="inventory-web-junction" style={{ animationDelay: `${250 + Math.min(index, 12) * 15}ms` }} cx={position.x} cy={position.y} r="4" fill="#0a3d7c" opacity=".5"/></g>)}
         </svg>
 
-        <div style={{ position: 'absolute', zIndex: 2, left: '50%', top: '50%', width: 174, height: 112, transform: 'translate(-50%,-50%)', padding: 14, display: 'grid', placeItems: 'center', textAlign: 'center', background: 'linear-gradient(145deg,#0b4a94,#082e5d)', border: '6px solid rgba(255,255,255,.88)', borderRadius: 28, color: '#fff', boxShadow: '0 15px 38px rgba(10,61,124,.26)' }}>
-          <span><strong style={{ display: 'block', fontSize: 14, lineHeight: 1.2 }}>{centerTitle}</strong><small style={{ display: 'block', marginTop: 6, color: '#c9dcf0', fontFamily: "'IBM Plex Mono',monospace", fontSize: 10.5 }}>{centerSubtitle}</small></span>
+        <div className="inventory-web-centre">
+          <span className="inventory-web-centre-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 20V8l8-4 8 4v12"/><path d="M8 20v-5h8v5M8 9h.01M12 9h.01M16 9h.01M8 12h.01M12 12h.01M16 12h.01"/></svg></span>
+          <small>LIVE INVENTORY HUB</small>
+          <strong>{centerTitle}</strong>
+          <p>{centerSubtitle}</p>
+          <em><i /> Synchronized</em>
         </div>
 
         {visibleOptions.map((option, index) => {
           const position = positions[index];
           const model = !option.category ? MODELS.find((entry) => entry.id === option.value) : null;
-          return <button key={option.value} type="button" onClick={() => option.category ? setCategory(option.value) : onSelect(option.value)}
-            style={{ position: 'absolute', zIndex: 3, left: `${position.x / webWidth * 100}%`, top: `${position.y / webHeight * 100}%`, width: groupBy === 'type' ? 174 : 154, minHeight: 70, transform: 'translate(-50%,-50%)', padding: '9px 10px', display: 'flex', alignItems: 'center', gap: 9, background: 'rgba(255,255,255,.96)', border: '1px solid #cfdbe6', borderRadius: 13, color: '#263746', textAlign: 'left', cursor: 'pointer', boxShadow: '0 7px 20px rgba(38,64,89,.12)', transition: 'transform .15s ease, box-shadow .15s ease' }}>
-            <span className={model ? 'equipment-preview equipment-preview--node' : ''} style={{ width: 34, height: 34, flex: 'none', display: 'grid', placeItems: 'center', overflow: 'hidden', background: option.category ? '#e9effa' : undefined, borderRadius: 9, color: '#0a3d7c', fontWeight: 800 }}>
-              {model ? <><span className="dashboard-model-loader" aria-hidden="true" /><canvas className="equipment-preview__canvas" data-model={glbUrl(model.id)} aria-label={`${model.name} 3D preview`} /></> : <WebNodeIcon category={option.category ? option.label : ''} location={!option.category} />}
+          return <button key={option.value} type="button" className="inventory-web-node" onClick={() => option.category ? setCategory(option.value) : onSelect(option.value)}
+            style={{ '--node-accent': nodeAccents[index % nodeAccents.length], animationDelay: `${80 + Math.min(index, 12) * 22}ms`, left: `${position.x / webWidth * 100}%`, top: `${position.y / webHeight * 100}%`, width: groupBy === 'type' ? 188 : 168 }}>
+            <span className={`inventory-web-node-visual${model ? ' equipment-preview equipment-preview--node' : ''}`}>
+              {model ? <canvas className="equipment-preview__canvas" data-model={glbUrl(model.id)} aria-label={`${model.name} 3D preview`} /> : <WebNodeIcon category={option.category ? option.label : ''} location={!option.category} />}
             </span>
-            <span style={{ minWidth: 0, flex: 1 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11.5, lineHeight: 1.25 }}>{option.label}</strong><small style={{ display: 'block', marginTop: 3, color: '#7b8794', fontSize: 10 }}>{option.count} record{option.count === 1 ? '' : 's'}</small></span>
+            <span className="inventory-web-node-copy"><small>{option.category ? 'EQUIPMENT FAMILY' : model?.cat || 'CAMPUS LOCATION'}</small><strong>{option.label}</strong><span><b>{option.count}</b> record{option.count === 1 ? '' : 's'}</span></span>
+            <span className="inventory-web-node-arrow">›</span>
           </button>;
         })}
         {!visibleOptions.length && <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#7b8794', fontSize: 12.5 }}>No groups match the current search and filters.</div>}
+        <div className="inventory-web-map-footer"><span><i className="blue" /> Connected dataset</span><span><i className="green" /> Live inventory count</span><small>Select any node to explore its records</small></div>
       </div>
     </div>
   );
@@ -106,7 +121,7 @@ function webPositions(count, width, height) {
   const innerCount = count - outerCount;
   for (let index = 0; index < outerCount; index += 1) {
     const angle = -Math.PI / 2 + (index * Math.PI * 2) / outerCount;
-    positions.push({ x: width / 2 + Math.cos(angle) * width * .415, y: height / 2 + Math.sin(angle) * height * .39 });
+    positions.push({ x: width / 2 + Math.cos(angle) * width * .415, y: height / 2 + Math.sin(angle) * height * .31 });
   }
   for (let index = 0; index < innerCount; index += 1) {
     const angle = -Math.PI / 2 + Math.PI / Math.max(innerCount, 1) + (index * Math.PI * 2) / innerCount;
@@ -129,10 +144,6 @@ function WebNodeIcon({ category, location }) {
   if (/office|furniture|appliance/.test(key)) return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M4 4h16v16H4zM4 10h16M10 10v10"/><circle cx="17" cy="15" r="1"/></svg>;
   if (/peripheral|accessor|tool|repair/.test(key)) return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 6a4 4 0 0 0-5 5L3 17l4 4 6-6a4 4 0 0 0 5-5l-3 3-3-3z"/></svg>;
   return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>;
-}
-
-function webModeStyle(active) {
-  return { height: 29, padding: '0 10px', border: 0, borderRadius: 7, background: active ? '#fff' : 'transparent', color: active ? '#0a3d7c' : '#687684', fontSize: 11.5, fontWeight: 650, cursor: 'pointer', boxShadow: active ? '0 1px 4px rgba(35,54,74,.12)' : 'none' };
 }
 
 function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpenItem, canDelete, onDelete }) {
@@ -363,7 +374,6 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
               <button key={model.id} type="button" data-card="1" onClick={() => openTypeRecords(model.id)}
                 style={{ padding: 0, background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', textAlign: 'left' }}>
                 <span className="equipment-preview equipment-preview--card" style={{ height: 160 }}>
-                  <span className="dashboard-model-loader" aria-hidden="true" />
                   <canvas className="equipment-preview__canvas" data-model={glbUrl(model.id)} aria-label={`${model.name} 3D equipment preview`} />
                   <span style={{ position: 'absolute', top: 9, right: 9, padding: '3px 7px', background: model.cons ? '#fdf0e0' : '#e9effa', color: model.cons ? '#8a5209' : '#0a3d7c', borderRadius: 999, fontSize: 9.5, fontWeight: 700 }}>{model.cons ? 'Consumable' : 'Tracked asset'}</span>
                 </span>
@@ -388,7 +398,7 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
             const st = effStatus(it);
             const recentDate = recentInventoryDate(it);
             return (
-              <div key={it.id} data-card="1" data-recent={recentDate ? 'true' : undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }} style={{ background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden', cursor: 'pointer' }}>
+              <div key={it.id} data-card="1" data-recent={recentDate ? 'true' : undefined} data-stocktake-state={it.stocktakeState || undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }} style={{ background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden', cursor: 'pointer' }}>
                 <div style={{ position: 'relative', height: 150, background: 'radial-gradient(closest-side,#eef2f7,#f8f9fb)' }}>
                   <canvas data-model={glbUrl(it.model)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}></canvas>
                   {recentDate && <span className="inventory-recent-badge">Recently added · {recentDateLabel(recentDate)}</span>}
@@ -398,7 +408,7 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
                   }}>{st}</span>
                 </div>
                 <div style={{ padding: 12, borderTop: '1px solid #eceff3', display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-.01em', lineHeight: 1.25 }}>{it.name}</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 600, letterSpacing: '-.01em', lineHeight: 1.25 }}>{it.name}<StocktakeFlag item={it} /></span>
                   <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10.5, color: '#0b4a94' }}>{it.tag}</span>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 7, borderTop: '1px solid #f2f4f7' }}>
                     <span style={{ fontSize: 11.5, color: '#7b8794' }}>{it.location} · {it.room}</span>
@@ -424,12 +434,12 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
             const st = effStatus(it);
             const recentDate = recentInventoryDate(it);
             return (
-              <div key={it.id} data-row="1" data-recent={recentDate ? 'true' : undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }}
+              <div key={it.id} data-row="1" data-recent={recentDate ? 'true' : undefined} data-stocktake-state={it.stocktakeState || undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }}
                 style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.25fr 1fr 1.15fr .7fr .75fr .65fr', gap: 10, alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f2f4f7', cursor: 'pointer', fontSize: 12.5 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                   <span style={thumbStyle(it.model, 30, 5)}></span>
                   <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
-                    <span style={{ maxWidth: '100%', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</span>
+                    <span style={{ maxWidth: '100%', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}<StocktakeFlag item={it} /></span>
                     {recentDate && <span className="inventory-recent-badge inventory-recent-badge--row">Recently added · {recentDateLabel(recentDate)}</span>}
                   </span>
                 </span>

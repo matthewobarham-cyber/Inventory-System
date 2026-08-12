@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { effStatus, isLowStock, thumbStyle } from '../data.js';
 import ScannerLabelStudio from './ScannerLabelStudio.jsx';
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 const MODES = [
   { id: 'smart', icon: '⌁', label: 'Smart action', detail: 'Automatically return loans, issue consumables, or start checkout.' },
@@ -33,7 +34,7 @@ function ScannerMark() {
   return <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M11 7H7v10M37 7h4v10M11 41H7V31m30 10h4V31M13 14v20m5-20v20m5-20v20m7-20v20m5-20v20M26 14v20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>;
 }
 
-function Scan({ items, recentScans, reservedBarcodes = [], canManageLoans, isActive = true, onScan, onSimulate, onOpenItem, onOpenStocktakes, onGenerateBlankLabels }) {
+function Scan({ items, placements = [], recentScans, reservedBarcodes = [], canManageLoans, isActive = true, onScan, onSimulate, onOpenItem, onOpenStocktakes, onGenerateBlankLabels }) {
   const [text, setText] = useState('');
   const [mode, setMode] = useState(canManageLoans ? 'smart' : 'lookup');
   const [feedback, setFeedback] = useState(null);
@@ -174,7 +175,7 @@ function Scan({ items, recentScans, reservedBarcodes = [], canManageLoans, isAct
       </div>
     </section>
 
-    <ScannerLabelStudio items={items} />
+    <ScannerLabelStudio items={items} placements={placements} />
 
     {feedback && <section className={`scanner-result ${feedback.error ? feedback.warning ? 'warning' : 'error' : 'success'}`} role="status">
       <div className="scanner-result-mark">{feedback.error ? feedback.warning ? '!' : '×' : '✓'}</div>
@@ -197,13 +198,14 @@ function Scan({ items, recentScans, reservedBarcodes = [], canManageLoans, isAct
 
       <aside className="scanner-side-column">
         <section className="scanner-quick-card"><header><small>Related tools</small><strong>Scanner workflows</strong></header><button type="button" onClick={onOpenStocktakes}><i>✓</i><span><strong>Physical stocktake</strong><small>Verify a building or room by barcode</small></span><b>→</b></button><button type="button" onClick={onGenerateBlankLabels}><i>▥</i><span><strong>Generate blank labels</strong><small>Create categorized labels for new stock</small></span><b>→</b></button></section>
-        <section className="scanner-recent-card"><header><span><small>Recent matches</small><strong>Previously scanned</strong></span><b>{recent.length}</b></header>{recent.length === 0 ? <p>No matched assets yet.</p> : recent.map((item) => <button key={item.id} type="button" onClick={() => onOpenItem(item.id)}><span style={thumbStyle(item.model, 34, 6)} /><span><strong>{item.name}</strong><small>{item.tag}</small></span><em data-status={effStatus(item).toLowerCase().replaceAll(' ', '-')}>{effStatus(item)}</em></button>)}</section>
+        <section className="scanner-recent-card"><header><span><small>Recent matches</small><strong>Previously scanned</strong></span><b>{recent.length}</b></header>{recent.length === 0 ? <p>No matched assets yet.</p> : recent.map((item) => <button key={item.id} type="button" data-stocktake-state={item.stocktakeState || undefined} onClick={() => onOpenItem(item.id)}><span style={thumbStyle(item.model, 34, 6)} /><span><strong>{item.name}<StocktakeFlag item={item} /></strong><small>{item.tag}</small></span><em data-status={effStatus(item).toLowerCase().replaceAll(' ', '-')}>{effStatus(item)}</em></button>)}</section>
       </aside>
     </section>
   </div>;
 }
 
 export default memo(Scan, (previous, next) => previous.items === next.items
+  && previous.placements === next.placements
   && previous.recentScans === next.recentScans
   && previous.reservedBarcodes === next.reservedBarcodes
   && previous.canManageLoans === next.canManageLoans

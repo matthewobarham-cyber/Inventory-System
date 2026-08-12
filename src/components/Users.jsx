@@ -13,7 +13,7 @@ const ROLE_SUMMARY = {
   Staff: 'Can browse inventory, request equipment, and review their loan history.'
 };
 
-export default function Users({ accounts, userState, navConfig = NAV, auditEntries = [], activeSection = null, hideNavigation = false, onAccessChange, onToggle, onUpdateProfile, onCreateAccount }) {
+export default function Users({ accounts, userState, navConfig = NAV, auditEntries = [], activeSection = null, hideNavigation = false, onAccessChange, onToggle, onUpdateProfile, onCreateAccount, onResetPassword }) {
   const [localActiveTab, setLocalActiveTab] = useState('accounts');
   const activeTab = activeSection || localActiveTab;
   const [selectedEmail, setSelectedEmail] = useState(null);
@@ -61,7 +61,7 @@ export default function Users({ accounts, userState, navConfig = NAV, auditEntri
     if (!name) { setCreateError('Full name is required.'); return; }
     if (!/^\S+@\S+\.\S+$/.test(email)) { setCreateError('Enter a valid campus email address.'); return; }
     if (accounts.some((account) => account.email.toLowerCase() === email)) { setCreateError('An account already uses that campus email.'); return; }
-    if (password.length < 6) { setCreateError('The temporary password must contain at least 6 characters.'); return; }
+    if (password.length < 8) { setCreateError('The temporary password must contain at least 8 characters.'); return; }
     if (!(createDraft.campusId || '').trim()) { setCreateError('Campus ID is required.'); return; }
     const result = await onCreateAccount(Object.fromEntries(Object.entries({ ...createDraft, name, email }).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value])));
     if (result?.error) { setCreateError(result.error); return; }
@@ -77,10 +77,11 @@ export default function Users({ accounts, userState, navConfig = NAV, auditEntri
     setEditing(true);
     setEditError('');
   };
-  const saveProfile = () => {
+  const saveProfile = async () => {
     if (!(draft.name || '').trim()) { setEditError('Name is required.'); return; }
     if (!(draft.campusId || '').trim()) { setEditError('Campus ID is required.'); return; }
-    onUpdateProfile(selected.email, Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value])));
+    const saved = await onUpdateProfile(selected.email, Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value])));
+    if (saved === false) return;
     setEditing(false);
   };
   const onRowKeyDown = (event, email) => {
@@ -164,7 +165,7 @@ export default function Users({ accounts, userState, navConfig = NAV, auditEntri
           onDraftChange={(key, value) => { setDraft((current) => ({ ...current, [key]: value })); setEditError(''); }}
           onStartEditing={startEditing} onCancelEditing={() => { setEditing(false); setEditError(''); }} onSave={saveProfile}
           onAvatarChange={(avatar) => onUpdateProfile(selected.email, { avatar })}
-          onToggle={onToggle} onClose={() => setSelectedEmail(null)} />
+          onToggle={onToggle} onResetPassword={onResetPassword} onClose={() => setSelectedEmail(null)} />
       )}
       {creating && (
         <NewUserModal draft={createDraft} error={createError}
@@ -215,7 +216,7 @@ function NewUserModal({ draft, error, onChange, onSave, onClose }) {
           </label>
           <label style={labelStyle}>
             <span style={captionStyle}>Temporary password</span>
-            <input type="password" value={draft.pass || ''} onChange={input('pass')} placeholder="Minimum 6 characters" style={fieldStyle} />
+            <input type="password" value={draft.pass || ''} onChange={input('pass')} placeholder="Minimum 8 characters" style={fieldStyle} />
           </label>
           <label style={labelStyle}>
             <span style={captionStyle}>Assigned role</span>
@@ -248,8 +249,16 @@ function NewUserModal({ draft, error, onChange, onSave, onClose }) {
   );
 }
 
-function UserProfile({ account, active, editing, draft, error, navConfig, onDraftChange, onStartEditing, onCancelEditing, onSave, onAvatarChange, onToggle, onClose }) {
+function UserProfile({ account, active, editing, draft, error, navConfig, onDraftChange, onStartEditing, onCancelEditing, onSave, onAvatarChange, onToggle, onResetPassword, onClose }) {
   const [avatarError, setAvatarError] = useState('');
+  const [resetStatus, setResetStatus] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const sendReset = async () => {
+    setResetting(true); setResetStatus('');
+    const result = await onResetPassword(account.email);
+    setResetting(false);
+    setResetStatus(result?.error || `Recovery email requested for ${account.email}.`);
+  };
   const details = [
     ['Campus ID', account.campusId],
     ['Campus email', account.email],
@@ -283,11 +292,13 @@ function UserProfile({ account, active, editing, draft, error, navConfig, onDraf
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
               {!editing && <button type="button" className="btn-ghost" onClick={onStartEditing} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Edit profile</button>}
+              {!editing && onResetPassword && <button type="button" className="btn-ghost" disabled={resetting} onClick={sendReset} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>{resetting ? 'Sending…' : 'Reset password'}</button>}
               {!editing && <button type="button" onClick={() => onToggle(account.email, active)} className={active ? 'btn-ghost-danger' : 'btn-primary'} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>{active ? 'Suspend account' : 'Restore account'}</button>}
               {editing && <button type="button" className="btn-ghost" onClick={onCancelEditing} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Cancel</button>}
               {editing && <button type="button" className="btn-primary" onClick={onSave} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Save changes</button>}
             </span>
           </div>
+          {!!resetStatus && <div style={{ margin: '12px 20px 0', padding: '9px 11px', background: resetStatus.startsWith('Recovery') ? '#e7f4ec' : '#fdeceb', borderRadius: 8, color: resetStatus.startsWith('Recovery') ? '#155e3f' : '#a01a12', fontSize: 11 }}>{resetStatus}</div>}
           {avatarError && <div style={{ margin: '12px 20px 0', padding: '9px 11px', background: '#fdeceb', border: '1px solid #f4cdc9', borderRadius: 7, color: '#a01a12', fontSize: 12 }}>{avatarError}</div>}
 
           <div style={{ padding: 20 }}>

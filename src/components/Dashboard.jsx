@@ -8,6 +8,7 @@ import {
   money,
   today,
 } from "../data.js";
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 const LEVELS = {
   Critical: { color: "#b3261e", background: "#fdeceb", border: "#f4cdc9" },
@@ -89,6 +90,20 @@ function Dashboard({
 
   const notifications = useMemo(() => {
     const result = [];
+
+    items.filter((item) => item.stocktakeState === 'Missing').forEach((item) =>
+      result.push({
+        id: `stocktake-missing-${item.id}-${item.stocktakeSessionId || ''}`,
+        level: 'Critical',
+        source: 'Stocktake',
+        title: `${item.name} was not found`,
+        detail: `${item.tag} · missing from ${item.stocktakeSessionTitle || 'physical verification'}`,
+        meta: item.stocktakeNote || `Recorded at ${item.location} ${item.room}`,
+        target: 'item',
+        itemId: item.id,
+        actionLabel: 'Investigate missing asset'
+      })
+    );
 
     overdue.forEach((item) =>
       result.push({
@@ -619,7 +634,7 @@ function Dashboard({
                     >
                       {notice.level} · {notice.source}
                     </span>
-                    <strong>{item.name}</strong>
+                    <strong>{item.name}<StocktakeFlag item={item} /></strong>
                     <code>{item.tag}</code>
                     <p className="dashboard-watch-event">
                       <b>What is happening:</b> {notice.title}

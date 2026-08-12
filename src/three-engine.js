@@ -7,7 +7,100 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const cache = new Map();
 const loader = new GLTFLoader();
+const textureLoader = new THREE.TextureLoader();
+let msbmScreenTexturePromise;
 const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function makeLoginScreenPanelTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 600;
+  const context = canvas.getContext('2d');
+  const x = 52; const y = 47; const width = 920; const height = 506; const radius = 58;
+  const roundedWindow = () => {
+    context.beginPath();
+    context.roundRect(x, y, width, height, radius);
+  };
+
+  context.save();
+  context.shadowColor = 'rgba(0, 14, 28, .38)';
+  context.shadowBlur = 34;
+  context.shadowOffsetY = 15;
+  roundedWindow();
+  context.fillStyle = 'rgba(255,255,255,.96)';
+  context.fill();
+  context.restore();
+
+  const surface = context.createLinearGradient(x, y, x + width, y + height);
+  surface.addColorStop(0, 'rgba(255,255,255,.99)');
+  surface.addColorStop(.62, 'rgba(250,253,255,.97)');
+  surface.addColorStop(1, 'rgba(228,239,246,.9)');
+  roundedWindow();
+  context.fillStyle = surface;
+  context.fill();
+  context.strokeStyle = 'rgba(178, 205, 218, .72)';
+  context.lineWidth = 3;
+  context.stroke();
+
+  // A very light application-window header keeps the presentation intentional
+  // without competing with the institutional identity.
+  context.save();
+  roundedWindow();
+  context.clip();
+  const header = context.createLinearGradient(0, y, 0, y + 78);
+  header.addColorStop(0, 'rgba(238,246,250,.9)');
+  header.addColorStop(1, 'rgba(255,255,255,.18)');
+  context.fillStyle = header;
+  context.fillRect(x, y, width, 78);
+  context.strokeStyle = 'rgba(184,207,217,.44)';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(x + 28, y + 78);
+  context.lineTo(x + width - 28, y + 78);
+  context.stroke();
+  ['#d9e5ea', '#c8dbe4', '#a9c9d7'].forEach((color, index) => {
+    context.beginPath();
+    context.arc(x + 43 + index * 31, y + 39, 8, 0, Math.PI * 2);
+    context.fillStyle = color;
+    context.fill();
+  });
+  context.restore();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+const LOGIN_SCREEN_PANEL_TEXTURE = makeLoginScreenPanelTexture();
+
+function addLoginScreenBrand(scene) {
+  if (!msbmScreenTexturePromise) {
+    msbmScreenTexturePromise = textureLoader.loadAsync('brand/msbm-lockup.png').then((texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 4;
+      return texture;
+    });
+  }
+  return msbmScreenTexturePromise.then((texture) => {
+    const panel = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.78, 1.04),
+      new THREE.MeshBasicMaterial({ map: LOGIN_SCREEN_PANEL_TEXTURE, transparent: true, depthWrite: false, toneMapped: false })
+    );
+    panel.name = 'MSBM screen application window';
+    panel.position.set(0, 1.52, 0.116);
+    panel.renderOrder = 1;
+    const logo = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.24, 0.667),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, alphaTest: 0.025, depthWrite: false, toneMapped: false })
+    );
+    logo.name = 'Official MSBM screen logo';
+    logo.position.set(0, 1.48, 0.121);
+    logo.renderOrder = 2;
+    scene.add(panel, logo);
+    return scene;
+  });
+}
 
 function loadModel(url) {
   const id = url;
@@ -18,7 +111,9 @@ function loadModel(url) {
         o.castShadow = true;
         o.receiveShadow = true;
       });
-      return g.scene;
+      return String(url).includes('login-workstation.glb') ? addLoginScreenBrand(g.scene) : g.scene;
+    }).then(scene => {
+      return scene;
     }).catch(e => { console.warn('model failed', id, e); return null; }));
   }
   return cache.get(id);
@@ -105,41 +200,47 @@ const detailStage = makeStage(900, 620, true);
 const cards = new Map();   // canvas -> entry
 const details = new Map(); // container -> entry
 
-let last = 0;
+let lastCardFrame = 0;
+const CARD_FRAME_INTERVAL = 1000 / 60;
 let detailRenderWidth = 900;
 let detailRenderHeight = 620;
 function frame(now) {
   requestAnimationFrame(frame);
   if (document.hidden || (!cards.size && !details.size)) return;
-  if (now - last < 50) return;            // 20fps keeps the slow rotation smooth with far less GPU work
-  const dt = (now - last) / 1000;
-  last = now;
 
   const cs = cardStage;
   cs.camera.position.set(0, 0.55, 2.6);
   cs.camera.lookAt(0, 0, 0);
-  for (const [canvas, e] of cards) {
-    if (!canvas.isConnected) { cards.delete(canvas); continue; }
-    if (canvas.closest('.workspace-screen[aria-hidden="true"]')) continue;
-    if (!e.visible || !e.pivot) continue;
-    const mul = typeof window.__inv3dSpeed === 'number' ? window.__inv3dSpeed : 1;
-    if (!reduced && mul > 0) e.spun = (e.spun || 0) + (now - e.lastT || 0) / 1000 * e.speed * mul;
-    e.lastT = now;
-    e.pivot.spinner.rotation.y = e.offset + (e.spun || 0);
-    e.pivot.spinner.rotation.x = -0.16;
-    cs.scene.add(e.pivot);
-    cs.renderer.render(cs.scene, cs.camera);
-    cs.scene.remove(e.pivot);
-    const ctx = e.ctx;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(cs.renderer.domElement, 0, 0, canvas.width, canvas.height);
-    if (!e.shown) { e.shown = true; canvas.style.opacity = '1'; canvas.classList.add('model-rendered'); canvas.parentElement?.classList.add('model-rendered'); }
+  if (now - lastCardFrame >= CARD_FRAME_INTERVAL) {
+    lastCardFrame = now;
+    for (const [canvas, e] of cards) {
+      if (!canvas.isConnected) { cards.delete(canvas); continue; }
+      if (!e.visible || !e.pivot) continue;
+      if (canvas.closest('.workspace-screen[aria-hidden="true"]')) continue;
+      const mul = typeof window.__inv3dSpeed === 'number' ? window.__inv3dSpeed : 1;
+      if (!reduced && mul > 0) e.spun = (e.spun || 0) + (now - e.lastT || 0) / 1000 * e.speed * mul;
+      e.lastT = now;
+      e.pivot.spinner.rotation.y = e.offset + (e.spun || 0);
+      e.pivot.spinner.rotation.x = -0.16;
+      cs.scene.add(e.pivot);
+      cs.renderer.render(cs.scene, cs.camera);
+      cs.scene.remove(e.pivot);
+      const ctx = e.ctx;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(cs.renderer.domElement, 0, 0, canvas.width, canvas.height);
+      if (!e.shown) { e.shown = true; canvas.style.opacity = '1'; canvas.classList.add('model-rendered'); canvas.parentElement?.classList.add('model-rendered'); }
+    }
   }
 
   const ds = detailStage;
   for (const [el, e] of details) {
     if (!el.isConnected) { details.delete(el); continue; }
+    if (el.closest('.workspace-screen[aria-hidden="true"]')) continue;
     if (!e.pivot) continue;
+    const frameInterval = 1000 / e.fps;
+    if (e.lastFrame && now - e.lastFrame < frameInterval) continue;
+    const dt = e.lastFrame ? Math.min((now - e.lastFrame) / 1000, .1) : 0;
+    e.lastFrame = now;
     const dmul = typeof window.__inv3dSpeed === 'number' ? window.__inv3dSpeed : 1;
     if (e.spin && !reduced) e.yaw += dt * 0.5 * dmul;
     e.pivot.spinner.rotation.y = e.yaw;
@@ -202,8 +303,8 @@ export const Inv3D = {
     // Avoid decoding dozens of GLBs on the UI thread at the same instant.
     return Promise.allSettled(Array.from({ length: Math.min(6, uniqueUrls.length) }, worker));
   },
-  sync() {
-    document.querySelectorAll('canvas[data-model]').forEach(canvas => {
+  sync(root = document) {
+    root.querySelectorAll('canvas[data-model]').forEach(canvas => {
       const id = canvas.getAttribute('data-model');
       if (!id) return;
       const e = cards.get(canvas);
@@ -222,11 +323,13 @@ export const Inv3D = {
       loadModel(id).then(src => { if (src && cards.get(canvas) === entry) entry.pivot = fitted(src, 1.35); });
     });
 
-    document.querySelectorAll('[data-detail-model]').forEach(el => {
+    root.querySelectorAll('[data-detail-model]').forEach(el => {
       const id = el.getAttribute('data-detail-model');
       if (!id) return;
       const interactive = el.getAttribute('data-detail-interactive') !== 'false';
+      const spinning = el.getAttribute('data-detail-spin') !== 'false';
       const scale = Number.parseFloat(el.getAttribute('data-detail-scale')) || 1.3;
+      const fps = Math.max(20, Math.min(60, Number.parseFloat(el.getAttribute('data-detail-fps')) || 60));
       let e = details.get(el);
       if (e && e.id === id) { Inv3D.resizeDetail(el); return; }
       let canvas = el.querySelector('canvas');
@@ -238,7 +341,7 @@ export const Inv3D = {
       }
       e = {
         id, canvas, ctx: canvas.getContext('2d'), yaw: 0.6, pitch: -0.18,
-        zoom: 1, spin: true, shown: false, pivot: null, bound: e && e.bound
+        zoom: 1, spin: spinning, fps, lastFrame: 0, shown: false, pivot: null, bound: e && e.bound
       };
       details.set(el, e);
       Inv3D.resizeDetail(el);

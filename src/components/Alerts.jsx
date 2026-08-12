@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { thumbStyle, isLowStock } from '../data.js';
 import SortableHeader, { nextSort, sortRows } from './SortableHeader.jsx';
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 const shortageFor = (item) => Math.max(0, Number(item.min || 0) - Number(item.qty || 0));
+const reorderFor = (item) => Math.max(1, (Number(item.min || 0) * 2) - Number(item.qty || 0));
 
 export default function Alerts({ items, pendingOrders, pendingPlacements, canEdit, onOpenItem, onReorder, onViewOrder, onOpenPlacements }) {
   const low = items.filter(isLowStock);
@@ -36,20 +38,20 @@ export default function Alerts({ items, pendingOrders, pendingPlacements, canEdi
         <header><span><strong>{filter === 'All' ? 'Replenishment register' : filter}</strong><small>{sorted.length} item{sorted.length === 1 ? '' : 's'} shown · click a heading to sort</small></span></header>
         <div className="low-stock-head">{[['consumable', 'Supply item'], ['location', 'Location'], ['onHand', 'On hand'], ['minimum', 'Minimum'], ['shortage', 'Shortage']].map(([column, label]) => <SortableHeader key={column} column={column} label={label} sort={sort} onSort={(key) => setSort((current) => nextSort(current, key))} />)}<span>Replenishment</span></div>
         {sorted.map((item) => {
-          const reorderQty = Math.max(12, item.min * 2);
+          const reorderQty = reorderFor(item);
           const pendingOrder = pendingOrders.find((order) => order.itemId === item.id);
           const pendingPlacement = pendingPlacements.find((placement) => placement.itemId === item.id);
           const ratio = Number(item.min || 0) ? Math.min(100, Math.round((Number(item.qty || 0) / Number(item.min)) * 100)) : 0;
           const state = pendingPlacement ? 'received' : pendingOrder ? 'ordered' : Number(item.qty || 0) === 0 ? 'depleted' : 'low';
           return (
-            <div key={item.id} className={`low-stock-row low-stock-${state}`}>
-              <button type="button" className="low-stock-identity" onClick={() => onOpenItem(item.id)}><span style={thumbStyle(item.model, 42, 9)} /><span><strong>{item.name}</strong><small>{item.category || 'Consumable supply'}</small><i><b style={{ width: `${ratio}%` }} /></i></span></button>
+            <div key={item.id} className={`low-stock-row low-stock-${state}`} data-stocktake-state={item.stocktakeState || undefined}>
+              <button type="button" className="low-stock-identity" onClick={() => onOpenItem(item.id)}><span style={thumbStyle(item.model, 42, 9)} /><span><strong>{item.name}<StocktakeFlag item={item} /></strong><small>{item.category || 'Consumable supply'}</small><i><b style={{ width: `${ratio}%` }} /></i></span></button>
               <span className="low-stock-location"><strong>{item.location}</strong><small>{item.room || 'Room not recorded'}</small></span>
               <strong className="low-stock-quantity">{item.qty}</strong>
               <span className="low-stock-minimum">{item.min}</span>
               <span className="low-stock-shortage">-{shortageFor(item)}</span>
               <span className="low-stock-action">
-                {pendingOrder ? <><small>Ordered · {pendingOrder.qty} units<br />Expected {pendingOrder.expectedOn}</small>{canEdit && <button type="button" className="low-stock-ordered-button" onClick={() => onViewOrder(pendingOrder.id)}>View vendor</button>}</> : pendingPlacement ? <><small>Delivery received<br />Labels and placement pending</small>{canEdit && <button type="button" className="low-stock-received-button" onClick={onOpenPlacements}>Set up stock</button>}</> : <><small>{Number(item.qty || 0) === 0 ? 'No units available' : `${shortageFor(item)} below minimum`}</small>{canEdit && <button type="button" className="low-stock-reorder-button" onClick={() => onReorder(item.id, reorderQty)}>Reorder {reorderQty}</button>}</>}
+                {pendingPlacement ? <><small>Delivery received<br />Labels and placement pending</small>{canEdit && <button type="button" className="low-stock-received-button" onClick={onOpenPlacements}>Set up stock</button>}</> : pendingOrder ? <><small>Ordered · {pendingOrder.qty} units<br />Expected {pendingOrder.expectedOn}</small>{canEdit && <button type="button" className="low-stock-ordered-button" onClick={() => onViewOrder(pendingOrder.id)}>View order</button>}</> : <><small>Recommended: {reorderQty}<br />Target: {Number(item.min || 0) * 2} on hand</small>{canEdit && <button type="button" className="low-stock-reorder-button" onClick={() => onReorder(item.id, reorderQty)}>Plan reorder</button>}</>}
               </span>
             </div>
           );

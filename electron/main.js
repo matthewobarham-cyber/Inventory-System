@@ -7,6 +7,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 const STORE_PATH = path.join(app.getPath('userData'), 'inventory-store.json');
 const MAIL_OUTBOX_PATH = path.join(app.getPath('userData'), 'mail-outbox.json');
+const APP_ICON_PATH = isDev
+  ? path.join(__dirname, '..', 'public', 'brand', 'msbm-app-icon.png')
+  : path.join(__dirname, '..', 'dist', 'brand', 'msbm-app-icon.png');
 
 let mainWindow = null;
 
@@ -50,6 +53,7 @@ function createWindow() {
     minWidth: 1080,
     minHeight: 680,
     backgroundColor: '#f5f6f8',
+    icon: APP_ICON_PATH,
     frame: false,
     show: false,
     webPreferences: {
@@ -141,6 +145,8 @@ ipcMain.handle('print:preview', async (_evt, bytes, requestedName) => {
     return { ok: false, error: error.message };
   }
 });
+
+if (process.platform === 'win32') app.setAppUserModelId('edu.uwi.mona.msbm.it-inventory');
 
 app.whenReady().then(createWindow);
 

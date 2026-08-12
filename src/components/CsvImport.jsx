@@ -32,10 +32,19 @@ export default function CsvImport({ importRuns, procurementRecords, canImport, o
     }
   };
 
-  const commit = () => {
-    const committed = onCommit({ files, assets: files.flatMap((file) => file.assets), procurement: files.flatMap((file) => file.procurement) });
-    setResult(committed);
-    if (!committed?.error) setFiles([]);
+  const commit = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const committed = await onCommit({ files, assets: files.flatMap((file) => file.assets), procurement: files.flatMap((file) => file.procurement) });
+      setResult(committed);
+      if (committed?.error) setError(committed.error);
+      else setFiles([]);
+    } catch (commitError) {
+      setError(commitError?.message || 'The interpreted CSV data could not be stored.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -57,13 +66,13 @@ export default function CsvImport({ importRuns, procurementRecords, canImport, o
               : <span style={{ padding: '7px 10px', borderRadius: 7, background: '#f1f2f4', color: '#5b6672', fontSize: 11.5 }}>View only</span>}
           </div>
           {!!error && <div style={{ padding: '10px 12px', background: '#fdeceb', border: '1px solid #f4cdc9', borderRadius: 8, color: '#a01a12', fontSize: 12 }}>{error}</div>}
-          {result && <div style={{ padding: '10px 12px', background: '#e7f4ec', border: '1px solid #c7e5d4', borderRadius: 8, color: '#155e3f', fontSize: 12 }}>Imported {result.assets} asset records and {result.procurement} procurement records. {result.skipped} duplicates were skipped.</div>}
+          {result && !result.error && <div style={{ padding: '10px 12px', background: '#e7f4ec', border: '1px solid #c7e5d4', borderRadius: 8, color: '#155e3f', fontSize: 12 }}>Imported {result.assets} asset records and {result.procurement} procurement records. {result.skipped} duplicates were skipped. {result.cloud ? 'The shared Supabase archive and local cache are up to date.' : 'The local archive is up to date.'}</div>}
           {!!files.length && (
             <div style={cardStyle}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 13, borderBottom: '1px solid #eceff3' }}>
                 <span style={{ flex: 1 }}><strong style={{ display: 'block', fontSize: 13.5 }}>Interpretation preview</strong><span style={{ fontSize: 11.5, color: '#7b8794' }}>{summary.assets} assets · {summary.procurement} procurement records · {files.length} files</span></span>
                 <button type="button" className="btn-ghost" onClick={() => setFiles([])} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12 }}>Clear</button>
-                <button type="button" onClick={commit} disabled={!summary.assets && !summary.procurement} style={{ height: 36, padding: '0 15px', border: '1px solid #12633f', borderRadius: 8, background: '#16794f', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Store interpreted data</button>
+                <button type="button" onClick={commit} disabled={busy || (!summary.assets && !summary.procurement)} style={{ height: 36, padding: '0 15px', border: '1px solid #12633f', borderRadius: 8, background: '#16794f', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{busy ? 'Storing dataâ€¦' : 'Store interpreted data'}</button>
               </div>
               <div style={{ marginTop: 12, display: 'grid', gap: 9 }}>
                 {files.map((file) => <div key={file.fileName} style={{ padding: '11px 12px', display: 'grid', gridTemplateColumns: '1.6fr 1fr .6fr .7fr', gap: 12, alignItems: 'center', background: '#f7f9fb', borderRadius: 8 }}>

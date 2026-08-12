@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MODELS, BUILDINGS, CONDITIONS } from '../data.js';
 import { IconX } from '../icons.jsx';
 
@@ -5,6 +6,73 @@ const fieldStyle = { height: 38, padding: '0 10px', background: '#f8f9fb', borde
 const monoFieldStyle = { ...fieldStyle, fontFamily: "'IBM Plex Mono',monospace", fontSize: 12.5 };
 const labelStyle = { display: 'flex', flexDirection: 'column', gap: 6 };
 const captionStyle = { fontSize: 11.5, fontWeight: 600, color: '#3f4a56' };
+
+function SearchableEquipmentSelect({ value, consumablesOnly, onChange }) {
+  const rootRef = useRef(null);
+  const options = useMemo(() => MODELS
+    .filter((model) => !consumablesOnly || model.cons === 1)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), [consumablesOnly]);
+  const selected = options.find((model) => model.id === value) || MODELS.find((model) => model.id === value);
+  const [query, setQuery] = useState(selected?.name || '');
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => { setQuery(selected?.name || ''); }, [value, selected?.name]);
+
+  const matches = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term || term === selected?.name?.toLowerCase()) return options;
+    return options.filter((model) => `${model.name} ${model.cat || ''} ${model.id}`.toLowerCase().includes(term));
+  }, [options, query, selected?.name]);
+
+  const choose = (model) => {
+    setQuery(model.name);
+    setExpanded(false);
+    onChange(model.id);
+  };
+
+  return <div ref={rootRef} className="asset-type-combobox" onBlur={(event) => {
+    if (!rootRef.current?.contains(event.relatedTarget)) {
+      setExpanded(false);
+      setQuery(selected?.name || '');
+    }
+  }}>
+    <span className="asset-type-search-icon" aria-hidden="true">⌕</span>
+    <input
+      value={query}
+      onChange={(event) => { setQuery(event.target.value); setExpanded(true); }}
+      onFocus={(event) => { event.target.select(); setExpanded(true); }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' && expanded && matches.length) { event.preventDefault(); choose(matches[0]); }
+        if (event.key === 'Escape') { setExpanded(false); setQuery(selected?.name || ''); }
+        if (event.key === 'ArrowDown') { event.preventDefault(); setExpanded(true); rootRef.current?.querySelector('[role="option"]')?.focus(); }
+      }}
+      role="combobox"
+      aria-expanded={expanded}
+      aria-controls="asset-type-options"
+      aria-autocomplete="list"
+      placeholder="Search equipment types…"
+      autoComplete="off"
+    />
+    <button type="button" className="asset-type-toggle" tabIndex={-1} aria-label="Show equipment types" onMouseDown={(event) => event.preventDefault()} onClick={() => setExpanded((current) => !current)}>⌄</button>
+    {expanded && <div id="asset-type-options" className="asset-type-options" role="listbox">
+      {matches.map((model) => <button
+        type="button"
+        role="option"
+        aria-selected={model.id === value}
+        key={model.id}
+        className={model.id === value ? 'selected' : ''}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => choose(model)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') { event.preventDefault(); event.currentTarget.nextElementSibling?.focus(); }
+          if (event.key === 'ArrowUp') { event.preventDefault(); (event.currentTarget.previousElementSibling || rootRef.current?.querySelector('input'))?.focus(); }
+          if (event.key === 'Escape') { setExpanded(false); rootRef.current?.querySelector('input')?.focus(); }
+        }}
+      ><span>{model.name}</span><small>{model.cat || 'Equipment'}</small></button>)}
+      {!matches.length && <div className="asset-type-no-results">No equipment types match “{query}”</div>}
+    </div>}
+  </div>;
+}
 
 export default function AssetFormModal({ open, mode, form, error, intakeProgress, isAdmin, consumablesOnly = false, printers = [], onChange, onSave, onDelete, onRequestRetire, onClose }) {
   if (!open) return null;
@@ -35,12 +103,10 @@ export default function AssetFormModal({ open, mode, form, error, intakeProgress
           </button>
         </div>
         <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxHeight: '62vh', overflow: 'auto' }}>
-          <label style={{ ...labelStyle, gridColumn: 'span 2' }}>
+          <div style={{ ...labelStyle, gridColumn: 'span 2' }}>
             <span style={captionStyle}>Equipment type</span>
-            <select value={form.model} onChange={set('model')} style={{ ...fieldStyle, cursor: 'pointer' }}>
-              {MODELS.filter((model) => !consumablesOnly || model.cons === 1).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })).map((mo) => <option key={mo.id} value={mo.id}>{mo.name}</option>)}
-            </select>
-          </label>
+            <SearchableEquipmentSelect value={form.model} consumablesOnly={consumablesOnly} onChange={(model) => onChange('model', model)} />
+          </div>
           {printerRelated && <label style={{ ...labelStyle, gridColumn: 'span 2' }}>
             <span style={captionStyle}>Printer using this consumable</span>
             <select value={selectedPrinterId} onChange={(event) => onChange('compatiblePrinterIds', event.target.value ? [event.target.value] : [])} style={{ ...fieldStyle, cursor: 'pointer' }}>

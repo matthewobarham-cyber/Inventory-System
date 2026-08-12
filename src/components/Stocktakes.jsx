@@ -75,7 +75,7 @@ function StocktakeReport({ session, itemsById }) {
   );
 }
 
-export default function Stocktakes({ items, sessions, sessionUser, canManage, onCreate, onRecord, onRemove, onComplete, onCancel, onDelete, onOpenItem }) {
+export default function Stocktakes({ items, sessions, sessionUser, canManage, createSignal = 0, onCreateSignalHandled, onCreate, onRecord, onRemove, onComplete, onCancel, onDelete, onOpenItem }) {
   const [activeId, setActiveId] = useState('');
   const [creating, setCreating] = useState(false);
   const [scopeType, setScopeType] = useState('building');
@@ -109,6 +109,14 @@ export default function Stocktakes({ items, sessions, sessionUser, canManage, on
   useEffect(() => {
     if (scopeType === 'room' && !rooms.includes(room)) setRoom(rooms[0] || '');
   }, [scopeType, room, rooms]);
+  useEffect(() => {
+    if (!createSignal || !canManage) return;
+    setActiveId('');
+    setTitle('');
+    setFeedback(null);
+    setCreating(true);
+    onCreateSignalHandled?.();
+  }, [createSignal, canManage]);
 
   const rows = useMemo(() => {
     if (!active) return [];

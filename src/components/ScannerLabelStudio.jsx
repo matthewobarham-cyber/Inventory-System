@@ -1,22 +1,56 @@
-import { useEffect, useMemo, useState } from 'react';
-import { thumbStyle } from '../data.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MODEL_BY, thumbStyle } from '../data.js';
 import { BarcodeGraphic } from './BarcodeLabelModal.jsx';
 
 const MAX_LABELS = 14;
+const normalizeSearch = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const equipmentTypeFor = (item) => MODEL_BY[item.model]?.name || item.importedType || item.category || 'Other equipment';
+const searchFieldsFor = (item) => {
+  const model = MODEL_BY[item.model];
+  return {
+    type: normalizeSearch(`${model?.name || ''} ${model?.cat || ''} ${item.model || ''} ${item.category || ''} ${item.importedType || ''}`),
+    all: normalizeSearch(`${item.name} ${item.tag} ${item.serial || ''} ${item.location || ''} ${item.room || ''} ${model?.name || ''} ${model?.cat || ''} ${item.model || ''} ${item.category || ''} ${item.importedType || ''} ${item.modelNumber || ''}`)
+  };
+};
 
-export default function ScannerLabelStudio({ items }) {
+export default function ScannerLabelStudio({ items, placements = [] }) {
   const [query, setQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [printActive, setPrintActive] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const sheetRef = useRef(null);
 
   const available = useMemo(() => items.filter((item) => item.tag && !item.archived), [items]);
   const selected = useMemo(() => selectedIds.map((id) => available.find((item) => item.id === id)).filter(Boolean), [available, selectedIds]);
+  const placementGroups = useMemo(() => placements
+    .map((placement) => ({
+      placement,
+      assets: available.filter((item) => item.sourcePlacementId === placement.id || (placement.assetIds || []).includes(item.id))
+    }))
+    .filter((group) => group.assets.length)
+    .sort((left, right) => String(right.placement.placedOn || right.placement.receivedOn || '').localeCompare(String(left.placement.placedOn || left.placement.receivedOn || '')))
+    .slice(0, 12), [available, placements]);
   const matches = useMemo(() => {
-    const term = query.trim().toLowerCase();
+    const term = normalizeSearch(query);
     if (!term) return available.filter((item) => !selectedIds.includes(item.id)).slice(0, 7);
-    return available.filter((item) => !selectedIds.includes(item.id)
-      && `${item.name} ${item.tag} ${item.serial || ''} ${item.location || ''} ${item.room || ''}`.toLowerCase().includes(term)).slice(0, 8);
+    const tokens = term.split(' ').filter(Boolean).map((token) => token.length > 3 && token.endsWith('s') ? token.slice(0, -1) : token);
+    return available
+      .filter((item) => !selectedIds.includes(item.id))
+      .map((item) => ({ item, fields: searchFieldsFor(item) }))
+      .filter(({ fields }) => tokens.every((token) => fields.all.includes(token)))
+      .sort((left, right) => {
+        const score = ({ item, fields }) => {
+          const typeName = normalizeSearch(equipmentTypeFor(item));
+          if (typeName === term) return 0;
+          if (typeName.startsWith(term)) return 1;
+          if (fields.type.includes(term)) return 2;
+          if (normalizeSearch(item.name).startsWith(term)) return 3;
+          return 4;
+        };
+        return score(left) - score(right) || left.item.name.localeCompare(right.item.name) || String(left.item.tag).localeCompare(String(right.item.tag));
+      })
+      .map(({ item }) => item);
   }, [available, query, selectedIds]);
 
   useEffect(() => {
@@ -27,17 +61,57 @@ export default function ScannerLabelStudio({ items }) {
   const add = (item) => {
     if (!item || selectedIds.includes(item.id) || selectedIds.length >= MAX_LABELS) return;
     setSelectedIds((current) => [...current, item.id]);
-    setQuery('');
-    setSearchOpen(false);
+    setSearchOpen(true);
+  };
+  const addPlacementAssets = (assets) => {
+    setSelectedIds((current) => {
+      const next = [...current];
+      assets.forEach((item) => { if (!next.includes(item.id) && next.length < MAX_LABELS) next.push(item.id); });
+      return next;
+    });
   };
   const remove = (id) => setSelectedIds((current) => current.filter((entry) => entry !== id));
   const openPrintPreview = () => {
-    if (!selected.length) return;
+    if (!selected.length || printActive) return;
     setPrintActive(true);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      window.print();
+    document.body.classList.add('scanner-label-printing');
+    let fallbackTimer;
+    const finishPrint = () => {
+      window.removeEventListener('afterprint', finishPrint);
+      clearTimeout(fallbackTimer);
+      document.body.classList.remove('scanner-label-printing');
       setPrintActive(false);
+    };
+    window.addEventListener('afterprint', finishPrint, { once: true });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try {
+        fallbackTimer = window.setTimeout(finishPrint, 60000);
+        window.print();
+      } catch (error) {
+        finishPrint();
+        window.alert(`The print preview could not be opened. ${error?.message || 'Please try again.'}`);
+      }
     }));
+  };
+
+  useEffect(() => () => document.body.classList.remove('scanner-label-printing'), []);
+  const downloadPdf = async () => {
+    if (!selected.length || pdfBusy || !sheetRef.current) return;
+    setPdfBusy(true);
+    const sheet = sheetRef.current;
+    try {
+      const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas')]);
+      sheet.classList.add('avery-5162-pdf-export');
+      const canvas = await html2canvas(sheet, { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true });
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'in', format: 'letter', compress: true });
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 8.5, 11, undefined, 'FAST');
+      doc.save(`MSBM-Custom-Barcode-Labels-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (error) {
+      window.alert(`The custom label PDF could not be created. ${error?.message || 'Please try again.'}`);
+    } finally {
+      sheet.classList.remove('avery-5162-pdf-export');
+      setPdfBusy(false);
+    }
   };
 
   return <section className="scanner-label-studio">
@@ -50,11 +124,11 @@ export default function ScannerLabelStudio({ items }) {
       <div className="scanner-label-search-panel">
         <label htmlFor="scanner-label-search">Add an inventory item</label>
         <div className="scanner-label-search-box">
-          <span>⌕</span><input id="scanner-label-search" value={query} onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }} onKeyDown={(event) => { if (event.key === 'Enter' && matches[0]) { event.preventDefault(); add(matches[0]); } }} placeholder="Search name, tag, serial or location" autoComplete="off" />
+          <span>⌕</span><input id="scanner-label-search" value={query} onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }} onKeyDown={(event) => { if (event.key === 'Enter' && matches[0]) { event.preventDefault(); add(matches[0]); } }} placeholder="Search item type, category, name, tag or location" autoComplete="off" />
         </div>
         {searchOpen && <div className="scanner-label-results">
           {matches.map((item) => <button key={item.id} type="button" disabled={selected.length >= MAX_LABELS} onMouseDown={(event) => event.preventDefault()} onClick={() => add(item)}>
-            <span style={thumbStyle(item.model, 34, 7)} /><span><strong>{item.name}</strong><code>{item.tag}</code><small>{item.location || 'Unassigned'}{item.room ? ` · ${item.room}` : ''}</small></span><b>{selected.length >= MAX_LABELS ? 'Full' : 'Add +'}</b>
+            <span style={thumbStyle(item.model, 34, 7)} /><span><strong>{item.name}</strong><code>{item.tag}</code><small>{equipmentTypeFor(item)} · {item.location || 'Unassigned'}{item.room ? ` · ${item.room}` : ''}</small></span><b>{selected.length >= MAX_LABELS ? 'Full' : 'Add +'}</b>
           </button>)}
           {!matches.length && <div>{available.length ? 'No additional assets match this search.' : 'No tagged inventory is available. Import or add assets first.'}</div>}
         </div>}
@@ -72,7 +146,7 @@ export default function ScannerLabelStudio({ items }) {
       <div className="scanner-label-preview-panel">
         <header><span><small>LIVE PRINT PREVIEW</small><strong>2 × 7 label sheet</strong></span><b>{selected.length ? 'Ready' : 'Empty'}</b></header>
         <div className="scanner-label-preview-stage">
-          <div className={`bulk-barcode-print-sheet avery-5162-sheet scanner-label-sheet${printActive ? ' scanner-label-sheet-printing' : ''}`}>
+          <div ref={sheetRef} className={`bulk-barcode-print-sheet avery-5162-sheet scanner-label-sheet${printActive ? ' scanner-label-sheet-printing' : ''}`}>
             {selected.map((item, labelIndex) => <div key={item.id} className="bulk-barcode-label avery-5162-label" style={{ left: `${0.156 + (labelIndex % 2) * 4.188}in`, top: `${0.833 + Math.floor(labelIndex / 2) * (4 / 3)}in` }}>
               <img src="brand/msbm-lockup.png" alt="" />
               <span className="avery-5162-label-body"><strong>{item.name}</strong><BarcodeGraphic value={item.tag} height={50} width={1.5} displayValue={false} /><span>{item.tag} · {item.location || 'Unassigned'}</span></span>
@@ -80,8 +154,35 @@ export default function ScannerLabelStudio({ items }) {
           </div>
           {!selected.length && <div className="scanner-label-preview-empty"><span>▥</span><strong>Your sheet is empty</strong><small>Add an inventory item to begin.</small></div>}
         </div>
-        <footer><span>{MAX_LABELS - selected.length} position{MAX_LABELS - selected.length === 1 ? '' : 's'} remaining</span><button type="button" disabled={!selected.length} onClick={openPrintPreview}>Open print preview</button></footer>
+        <footer><span>{MAX_LABELS - selected.length} position{MAX_LABELS - selected.length === 1 ? '' : 's'} remaining</span><div><button type="button" className="scanner-label-pdf" disabled={!selected.length || pdfBusy} onClick={downloadPdf}>{pdfBusy ? 'Creating PDF…' : 'Download PDF'}</button><button type="button" disabled={!selected.length || pdfBusy} onClick={openPrintPreview}>Open print preview</button></div></footer>
       </div>
     </div>
+
+    <section className="scanner-placement-labels">
+      <header>
+        <span><small>ASSIGNMENT INTAKE</small><strong>Newly registered order assets</strong><p>Load barcodes directly from assets created through Pending Orders and Assignment—no catalogue search required.</p></span>
+        <b>{placementGroups.reduce((count, group) => count + group.assets.length, 0)} ready</b>
+      </header>
+      <div className="scanner-placement-groups">
+        {placementGroups.map(({ placement, assets }) => {
+          const unloaded = assets.filter((item) => !selectedIds.includes(item.id));
+          return <article key={placement.id}>
+            <div className="scanner-placement-group-head">
+              <span style={thumbStyle(placement.model, 48, 10)} />
+              <span><small>{placement.supplier || 'Received order'}</small><strong>{placement.name}</strong><code>{placement.purchaseOrderNumber || placement.requisitionNumber || placement.reference || placement.id}</code></span>
+              <em>{placement.placedOn || placement.receivedOn}</em>
+            </div>
+            <div className="scanner-placement-assets">
+              {assets.map((item) => {
+                const loaded = selectedIds.includes(item.id);
+                return <button type="button" key={item.id} data-loaded={loaded ? 'true' : 'false'} disabled={loaded || selectedIds.length >= MAX_LABELS} onClick={() => addPlacementAssets([item])}><span><strong>{item.name}</strong><code>{item.tag}</code></span><b>{loaded ? 'Loaded ✓' : 'Add +'}</b></button>;
+              })}
+            </div>
+            <footer><span>{assets.length} registered asset{assets.length === 1 ? '' : 's'} · {unloaded.length} not yet loaded</span><button type="button" disabled={!unloaded.length || selectedIds.length >= MAX_LABELS} onClick={() => addPlacementAssets(unloaded)}>{unloaded.length ? `Load ${Math.min(unloaded.length, MAX_LABELS - selectedIds.length)} label${Math.min(unloaded.length, MAX_LABELS - selectedIds.length) === 1 ? '' : 's'}` : 'All loaded'}</button></footer>
+          </article>;
+        })}
+        {!placementGroups.length && <div className="scanner-placement-empty"><span>▥</span><strong>No Assignment assets are ready yet</strong><p>Once received equipment is registered in Assignment, its generated asset tags will appear here automatically.</p></div>}
+      </div>
+    </section>
   </section>;
 }

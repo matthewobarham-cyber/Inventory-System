@@ -81,7 +81,7 @@ ${sender?.email || ''}`
     try {
       const result = await openOutlookCompose({ to: form.to, cc: form.cc, subject: form.subject, body: form.body });
       if (result?.ok === false) throw new Error(result.error || 'Outlook Web could not be opened.');
-      onPrepared?.({ to: form.to.trim(), cc: form.cc.trim(), subject: form.subject.trim(), bodyCopied: false });
+      onPrepared?.({ to: form.to.trim(), cc: form.cc.trim(), subject: form.subject.trim(), bodyCopied: !!result?.bodyCopied });
       onClose();
     } catch (caught) { setError(caught.message || 'The Outlook handoff could not be prepared.'); }
     finally { setBusy(false); }

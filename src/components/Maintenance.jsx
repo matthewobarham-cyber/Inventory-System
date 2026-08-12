@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { iso, money, thumbStyle, today } from '../data.js';
 import { IconX } from '../icons.jsx';
 import SortableHeader, { nextSort, sortRows } from './SortableHeader.jsx';
 import { generateRepairTicketPdf } from '../repair-ticket-pdf.js';
 import MaintenanceEmailModal from './MaintenanceEmailModal.jsx';
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 const ACTIVE = ['Open', 'In progress', 'Awaiting vendor'];
 const TICKET_STATUSES = [...ACTIVE, 'Completed', 'Cancelled'];
@@ -46,7 +47,7 @@ async function readRepairPhoto(file) {
   return { id: `photo-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: file.name, data: canvas.toDataURL('image/jpeg', .78), addedAt: new Date().toISOString() };
 }
 
-export default function Maintenance({ items, tickets, schedules, technicians, emailContacts, sender, query, canManage, onCreateTicket, onUpdateTicket, onCreateSchedule, onUpdateSchedule, onAddEmailContact, onEmailPrepared, onOpenItem }) {
+export default function Maintenance({ items, tickets, schedules, technicians, emailContacts, sender, query, canManage, createSignal = 0, onCreateSignalHandled, onCreateTicket, onUpdateTicket, onCreateSchedule, onUpdateSchedule, onAddEmailContact, onEmailPrepared, onOpenItem, onAcknowledge }) {
   const [tab, setTab] = useState('tickets');
   const [ticketOpen, setTicketOpen] = useState(false);
   const [editingTicketId, setEditingTicketId] = useState('');
@@ -81,7 +82,10 @@ export default function Maintenance({ items, tickets, schedules, technicians, em
   const openNewTicket = (schedule = null) => {
     setEditingTicketId(''); setTicketError(''); setTicketForm(blankTicket(schedule?.itemId || eligibleItems[0]?.id || '', schedule)); setTicketOpen(true);
   };
-  const openTicket = (ticket) => { setEditingTicketId(ticket.id); setTicketError(''); setTicketForm({ ...blankTicket(ticket.itemId), ...ticket, photos: ticket.photos || [] }); setTicketOpen(true); };
+  useEffect(() => {
+    if (createSignal && canManage) { openNewTicket(); onCreateSignalHandled?.(); }
+  }, [createSignal]);
+  const openTicket = (ticket) => { onAcknowledge?.(ticket.id); setEditingTicketId(ticket.id); setTicketError(''); setTicketForm({ ...blankTicket(ticket.itemId), ...ticket, photos: ticket.photos || [] }); setTicketOpen(true); };
   const saveTicket = () => {
     if (!ticketForm.itemId) { setTicketError('Choose an asset.'); return; }
     if (!ticketForm.faultDescription.trim()) { setTicketError('Describe the fault or maintenance work required.'); return; }
@@ -157,8 +161,8 @@ export default function Maintenance({ items, tickets, schedules, technicians, em
 
       {tab === 'tickets' ? <div className="maintenance-table-card">
         <div className="maintenance-table-head" style={tableGrid}>{[['ticket', 'Ticket / asset'], ['fault', 'Fault or service'], ['technician', 'Technician'], ['vendor', 'Vendor / RMA'], ['cost', 'Cost'], ['status', 'Status / document']].map(([column, label]) => <SortableHeader key={column} column={column} label={label} sort={ticketSort} onSort={(key) => setTicketSort((current) => nextSort(current, key))} />)}</div>
-        {visibleTickets.map((ticket) => { const item = itemMap.get(ticket.itemId); return <div className="maintenance-ticket-row" data-priority={ticket.priority} data-status={ticket.status} key={ticket.id} role="button" tabIndex={0} onClick={() => openTicket(ticket)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openTicket(ticket); } }} style={tableGrid}>
-          <span style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 9 }}>{item && <span style={thumbStyle(item.model, 30, 5)} />}<span style={{ minWidth: 0 }}><strong style={{ display: 'block', fontSize: 12 }}>{ticket.itemName}</strong><small style={{ color: '#0b4a94', fontFamily: "'IBM Plex Mono',monospace" }}>{ticket.id} · {ticket.itemTag}</small></span></span>
+        {visibleTickets.map((ticket) => { const item = itemMap.get(ticket.itemId); return <div className="maintenance-ticket-row" data-priority={ticket.priority} data-status={ticket.status} data-workflow-unread={ticket.workflowUnread ? 'true' : undefined} data-stocktake-state={item?.stocktakeState || undefined} key={ticket.id} role="button" tabIndex={0} onClick={() => openTicket(ticket)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openTicket(ticket); } }} style={tableGrid}>
+          <span style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 9 }}>{item && <span style={thumbStyle(item.model, 30, 5)} />}<span style={{ minWidth: 0 }}><strong style={{ display: 'block', fontSize: 12 }}>{ticket.itemName}<StocktakeFlag item={item} />{ticket.workflowUnread && <i className="workflow-item-dot" title="New workflow item" />}</strong><small style={{ color: '#0b4a94', fontFamily: "'IBM Plex Mono',monospace" }}>{ticket.id} · {ticket.itemTag}</small></span></span>
           <span style={{ minWidth: 0 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11.5 }}>{ticket.faultDescription}</strong><small style={{ color: '#7b8794' }}>{ticket.type} · {ticket.priority} priority</small></span>
           <span style={{ color: '#566472', fontSize: 11.5 }}>{ticket.technician || 'Unassigned'}</span>
           <span style={{ color: '#566472', fontSize: 11.5 }}>{ticket.vendor || 'Internal repair'}<small style={{ display: 'block', color: '#7b8794' }}>{ticket.rmaNumber ? `RMA ${ticket.rmaNumber}` : 'No RMA'}</small></span>

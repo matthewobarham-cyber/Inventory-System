@@ -4,6 +4,7 @@ import { glbUrl, money, longDate, daysBetween, statusTagStyle, today, iso, SHOW_
 import { IconArrowLeft, IconRefresh, IconCheckoutArrow } from '../icons.jsx';
 import BarcodeLabelModal, { BarcodeGraphic } from './BarcodeLabelModal.jsx';
 import { bookValueFor, expectedReplacementFor } from '../lifecycle.js';
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 export default function ItemDetail({
   item, history, maintenanceTickets = [], lifecycleActions = [], canLoanNow, isStaff, canEdit, canDelete, onBack, onOpenCheckout, onRequestBorrow, onOpenEdit, onDelete, onGenerateInvoice, onReorder, onOpenLifecycle,
@@ -174,6 +175,7 @@ export default function ItemDetail({
                 <span style={statusTagStyle(st)}>{st}</span>
               </div>
             </div>
+            {['Missing', 'Wrong location', 'Quantity mismatch'].includes(item.stocktakeState) && <div className={`stocktake-asset-alert ${item.stocktakeState === 'Missing' ? 'missing' : 'warning'}`}><StocktakeFlag item={item} label /><span><strong>{item.stocktakeState === 'Missing' ? 'This asset was not found during physical verification.' : item.stocktakeState === 'Wrong location' ? 'This asset was found outside its recorded location.' : 'The physical quantity did not match the inventory record.'}</strong><small>{item.stocktakeSessionTitle || item.stocktakeSessionId}{item.stocktakeScope ? ` · ${item.stocktakeScope}` : ''}</small></span></div>}
             {pendingOrder && (
               <button type="button" onClick={() => onViewOrder(pendingOrder.id)} style={{ marginTop: 10, minHeight: 34, padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 8, background: '#fdf6e9', border: '1px solid #f1d5ad', borderRadius: 8, color: '#8a5209', textAlign: 'left', cursor: 'pointer' }}>
                 <span style={{ width: 7, height: 7, flex: 'none', borderRadius: '50%', background: '#b8710f' }}></span>

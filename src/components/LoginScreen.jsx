@@ -2,18 +2,26 @@ import { useState } from 'react';
 import { roleTagStyle } from '../data.js';
 import { IconAlert, IconArrowRight } from '../icons.jsx';
 
-export default function LoginScreen({ accounts, onLogin, onDemoLogin }) {
+const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'IT';
+
+export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestPasswordReset, cloudEnabled = false }) {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [remember, setRemember] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetSent, setResetSent] = useState(false);
+  const [resetSubmitting, setResetSubmitting] = useState(false);
 
   const submit = async () => {
     if (submitting) return;
     setSubmitting(true);
     const res = await onLogin(email.trim(), pass, remember);
-    if (res && res.error) setError(res.error);
+    if (res?.error) setError(res.error);
     setSubmitting(false);
   };
 
@@ -24,82 +32,110 @@ export default function LoginScreen({ accounts, onLogin, onDemoLogin }) {
     if (result?.error) setError(result.error);
     setSubmitting(false);
   };
-  const onKey = (e) => { if (e.key === 'Enter') submit(); };
+
+  const onKey = (event) => { if (event.key === 'Enter') submit(); };
+  const requestReset = async () => {
+    const target = resetEmail.trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(target)) { setResetError('Enter the campus email used for your account.'); return; }
+    setResetSubmitting(true); setResetError('');
+    const result = await onRequestPasswordReset(target);
+    setResetSubmitting(false);
+    if (result?.error) { setResetError(result.error); return; }
+    setResetSent(true);
+  };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, display: 'grid', gridTemplateColumns: '1.02fr .98fr' }}>
-      <div style={{ position: 'relative', background: '#171c22', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '44px 48px' }}>
-        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 14 }}>
-          <img src="brand/msbm-lockup-light.png" alt="Mona School of Business & Management, The University of the West Indies, Mona"
-            style={{ width: 200, height: 'auto', flex: 'none', alignSelf: 'flex-start', display: 'block' }} />
-          <span style={{ color: '#8d99a6', fontSize: 10.5, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase' }}>IT Inventory System</span>
-        </div>
-        <div data-detail-model="uploads/University-IT-Office-Equipment-GLB-Expansion/models/all-in-one-desktop.glb"
-          data-detail-interactive="false" data-detail-scale="1.05"
-          style={{ position: 'absolute', left: 0, right: 0, top: '12%', bottom: '16%', zIndex: 1 }}></div>
-        <div style={{ position: 'absolute', left: '-14%', top: '8%', width: '120%', height: '70%', background: 'radial-gradient(closest-side,rgba(10,61,124,.55),rgba(23,28,34,0))' }}></div>
-        <div style={{ position: 'relative', zIndex: 2, maxWidth: 420 }}>
-          <div style={{ fontSize: 34, lineHeight: 1.12, fontWeight: 600, color: '#fff', letterSpacing: '-.02em' }}>Every cable, cartridge and mixer on campus — accounted for.</div>
-          <div style={{ marginTop: 14, fontSize: 14, lineHeight: 1.6, color: '#96a2b0' }}>39 equipment classes, 8 buildings, live loan tracking.</div>
-          <div style={{ marginTop: 22, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.12)', fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: '#6f7a86' }}>The University of the West Indies, Mona</div>
-        </div>
-      </div>
+    <main className="login-shell">
+      <section className="login-visual-panel" aria-label="MSBM inventory operations">
+        <div className="login-visual-grid" aria-hidden="true" />
+        <div className="login-visual-orbit orbit-one" aria-hidden="true" />
+        <div className="login-visual-orbit orbit-two" aria-hidden="true" />
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '32px 48px', background: '#f5f6f8', overflowY: 'auto' }}>
-        <div style={{ width: '100%', maxWidth: 540, margin: 'auto 0' }}>
-          <img src="brand/msbm-lockup.png" alt="Mona School of Business & Management, The University of the West Indies, Mona"
-            style={{ width: 146, height: 'auto', flex: 'none', alignSelf: 'flex-start', display: 'block', marginBottom: 26 }} />
-          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: '#7b8794' }}>Sign in</div>
-          <h1 style={{ margin: '10px 0 0', fontSize: 27, fontWeight: 600, letterSpacing: '-.02em' }}>Inventory console</h1>
-          <div style={{ marginTop: 8, fontSize: 13.5, color: '#5b6672' }}>Use your campus credentials. Access follows your role.</div>
+        <div className="login-model-stage" aria-hidden="true">
+          <div className="login-model-halo" />
+          <div data-detail-model="generated/models/login-workstation.glb?v=5" data-detail-interactive="false" data-detail-spin="true" data-detail-fps="60" data-detail-scale="1.22" />
+        </div>
 
-          <div style={{ marginTop: 26, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#3f4a56' }}>Campus email</span>
-              <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(''); }} onKeyDown={onKey}
-                placeholder="name@uwi.edu" autoComplete="username"
-                style={{ height: 42, padding: '0 12px', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 8, fontSize: 14, outline: 'none' }} />
+        <div className="login-visual-copy">
+          <span className="login-eyebrow"><i /> Campus technology, clearly controlled</span>
+          <h2>One intelligent view of every asset.</h2>
+          <p>Know what MSBM owns, where it is, who has it, and what needs attention—all from one beautifully organized workspace.</p>
+          <div className="login-visual-metrics">
+            <span><strong>39</strong><small>Equipment classes</small></span>
+            <span><strong>8</strong><small>Campus buildings</small></span>
+            <span><strong>Live</strong><small>Lifecycle control</small></span>
+          </div>
+        </div>
+
+        <footer className="login-visual-footer"><span>The University of the West Indies, Mona</span><b>MSBM · IT Services</b></footer>
+      </section>
+
+      <section className="login-form-panel">
+        <div className="login-form-atmosphere" aria-hidden="true" />
+        <div className="login-form-card">
+          <header className="login-form-heading">
+            <img src="brand/msbm-lockup.png" alt="Mona School of Business & Management" />
+            <span className="login-form-kicker">Secure inventory workspace</span>
+            <h1>Welcome back</h1>
+            <p>Sign in to manage equipment, loans, stock, maintenance, and campus operations.</p>
+          </header>
+
+          <div className="login-fields">
+            <label className="login-field">
+              <span>Campus email</span>
+              <div><i aria-hidden="true">@</i><input type="email" value={email} onChange={(event) => { setEmail(event.target.value); setError(''); }} onKeyDown={onKey} placeholder="name@uwi.edu" autoComplete="username" /></div>
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#3f4a56' }}>Password</span>
-              <input type="password" value={pass} onChange={(e) => { setPass(e.target.value); setError(''); }} onKeyDown={onKey}
-                placeholder="••••••••" autoComplete="current-password"
-                style={{ height: 42, padding: '0 12px', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 8, fontSize: 14, outline: 'none' }} />
+            <label className="login-field">
+              <span>Password</span>
+              <div><i aria-hidden="true">●</i><input type={showPassword ? 'text' : 'password'} value={pass} onChange={(event) => { setPass(event.target.value); setError(''); }} onKeyDown={onKey} placeholder="Enter your password" autoComplete="current-password" /><button type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button></div>
             </label>
-            {!!error && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: '#fdeceb', border: '1px solid #f4cdc9', borderRadius: 8, color: '#a01a12', fontSize: 12.5 }}>
-                <IconAlert color="currentColor" />
-                <span>{error}</span>
-              </div>
-            )}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: '#5b6672', cursor: 'pointer' }}>
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ width: 15, height: 15, accentColor: '#0a3d7c' }} />
-              <span>Keep me signed in on this workstation</span>
-            </label>
-            <button type="button" className="btn-primary" onClick={submit} disabled={submitting}
-              style={{ height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
-              <span>{submitting ? 'Signing in…' : 'Sign in'}</span>
-              <IconArrowRight />
+
+            {!!error && <div className="login-error" role="alert"><IconAlert color="currentColor" /><span>{error}</span></div>}
+
+            <div className="login-form-options">
+              <label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /><span>Keep me signed in</span></label>
+              {cloudEnabled ? <button type="button" onClick={() => { setResetEmail(email); setResetError(''); setResetSent(false); setResetOpen(true); }}>Forgot password?</button> : <span>Authorized access only</span>}
+            </div>
+
+            <button type="button" className="login-submit" onClick={submit} disabled={submitting}>
+              <span>{submitting ? 'Signing you in…' : 'Enter inventory console'}</span><IconArrowRight />
             </button>
           </div>
 
-          {accounts.length > 0 && <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid #dfe3e9' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: '#7b8794' }}>Demo accounts — click to sign in</div>
-            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-              {accounts.map((acct) => (
-                <button key={acct.email} type="button" data-row="1" disabled={submitting} onClick={() => signInDemo(acct)} aria-label={`Sign in as ${acct.name}, ${acct.role}`}
-                  style={{ minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 11px', background: '#fff', border: '1px solid #d7dce3', borderRadius: 8, cursor: submitting ? 'wait' : 'pointer', textAlign: 'left', boxShadow: '0 1px 2px rgba(23,28,34,.04)' }}>
-                  <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 600 }}>{acct.name}</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'IBM Plex Mono',monospace", fontSize: 10.5, color: '#7b8794' }}>{acct.email}</span>
-                  </span>
-                  <span style={{ ...roleTagStyle(acct.role), flex: 'none' }}>{acct.role}</span>
-                </button>
-              ))}
+          {accounts.length > 0 && <section className="login-demo-section">
+            <header><span><small>Quick access</small><strong>Demo accounts</strong></span><i>{accounts.length} available</i></header>
+            <div className="login-demo-grid">
+              {accounts.map((acct) => <button key={acct.email} type="button" disabled={submitting} onClick={() => signInDemo(acct)} aria-label={`Sign in as ${acct.name}, ${acct.role}`}>
+                <span className="login-demo-avatar">{initials(acct.name)}</span>
+                <span className="login-demo-copy"><strong>{acct.name}</strong><small>{acct.email}</small></span>
+                <span className="login-demo-role" style={roleTagStyle(acct.role)}>{acct.role}</span>
+                <span className="login-demo-arrow" aria-hidden="true">→</span>
+              </button>)}
             </div>
-          </div>}
+          </section>}
+
+          <footer className="login-trust"><span><i /> {cloudEnabled ? 'Protected by Supabase Auth' : 'Protected local workspace'}</span><small>MSBM IT Inventory · Version 1.0</small></footer>
         </div>
-      </div>
-    </div>
+      </section>
+
+      {resetOpen && <div className="password-reset-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setResetOpen(false); }}>
+        <section className="password-reset-card" role="dialog" aria-modal="true" aria-labelledby="password-reset-title">
+          <span className="password-reset-mark"><img src="brand/msbm-crest.png" alt="" /></span>
+          {!resetSent ? <>
+            <small>Secure account recovery</small>
+            <h2 id="password-reset-title">Reset your password</h2>
+            <p>We will send a secure recovery link to the email registered with your MSBM inventory account.</p>
+            <label><span>Campus email</span><input autoFocus type="email" value={resetEmail} onChange={(event) => { setResetEmail(event.target.value); setResetError(''); }} onKeyDown={(event) => { if (event.key === 'Enter') requestReset(); }} placeholder="name@uwi.edu" /></label>
+            {!!resetError && <div className="password-reset-error" role="alert">{resetError}</div>}
+            <div className="password-reset-actions"><button type="button" onClick={() => setResetOpen(false)}>Cancel</button><button type="button" className="primary" disabled={resetSubmitting} onClick={requestReset}>{resetSubmitting ? 'Sending…' : 'Send recovery link'}</button></div>
+          </> : <>
+            <small>Recovery email requested</small>
+            <h2 id="password-reset-title">Check your inbox</h2>
+            <p>If an account exists for <strong>{resetEmail.trim().toLowerCase()}</strong>, a secure password-reset link has been sent. The message may take a minute to arrive.</p>
+            <div className="password-reset-actions"><button type="button" className="primary" onClick={() => setResetOpen(false)}>Return to sign in</button></div>
+          </>}
+        </section>
+      </div>}
+    </main>
   );
 }

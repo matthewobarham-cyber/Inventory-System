@@ -7,6 +7,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        desktop: 'index.html',
+        web: 'web.html'
+      }
+    },
     // three.js is intentionally isolated behind the lazy three-engine boundary.
     chunkSizeWarningLimit: 600
   },

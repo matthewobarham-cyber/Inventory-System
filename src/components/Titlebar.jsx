@@ -14,7 +14,7 @@ export default function Titlebar({ buildLabel }) {
   }, []);
 
   return (
-    <div style={{ height: 38, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', background: '#171c22', WebkitAppRegion: 'drag' }}>
+    <div className="desktop-titlebar" style={{ height: 38, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', background: '#171c22', WebkitAppRegion: 'drag' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#f0564a' }}></span>
         <span style={{ width: 11, height: 11, borderRadius: '50%', background: '#f0b73d' }}></span>

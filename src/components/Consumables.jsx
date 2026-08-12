@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import { BUILDINGS, glbUrl, isLowStock, money } from '../data.js';
 import { IconX } from '../icons.jsx';
 import { Inv3D } from '../three-engine.js';
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 const field = { height: 38, padding: '0 10px', border: '1px solid #d9e1e9', borderRadius: 8, background: '#fff', fontSize: 12.5 };
 const COLORS = [
@@ -321,11 +322,11 @@ function SupplyTile({ item, highlighted, canManage, onOpenItem, onMap, onUse, on
   const low = isLowStock(item);
   const color = inkColor(item);
   const url = color ? `generated/models/toner-${color}.glb` : glbUrl(item.model);
-  return <article className="supply-tile" data-consumable-id={item.id} data-scanned={highlighted ? 'true' : undefined} data-alert={quantity === 0 ? 'empty' : low ? 'low' : 'healthy'}>
+  return <article className="supply-tile" data-consumable-id={item.id} data-scanned={highlighted ? 'true' : undefined} data-alert={quantity === 0 ? 'empty' : low ? 'low' : 'healthy'} data-stocktake-state={item.stocktakeState || undefined}>
     <ModelStage url={url} label={`${item.name} 3D model`} />
     <div className="supply-tile-copy">
       <span><StockState item={item} /><small>{supplyFamily(item)}</small></span>
-      <button type="button" onClick={() => onOpenItem(item.id)}>{item.name}</button>
+      <button type="button" onClick={() => onOpenItem(item.id)}>{item.name}<StocktakeFlag item={item} /></button>
       <code>{item.stockCode || item.tag}</code>
       <div className="supply-stock-summary"><strong>{quantity}</strong><span>{item.unitOfMeasure || 'units'}<small>Minimum {item.min || 0}</small></span></div>
       <p><b>Stored:</b> {item.location || 'Unassigned'} · {item.room || 'No room'}</p>

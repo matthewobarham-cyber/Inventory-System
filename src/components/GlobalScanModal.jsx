@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { IconScan, IconX } from '../icons.jsx';
-import { effStatus, thumbStyle } from '../data.js';
+import { effStatus, glbUrl } from '../data.js';
 import { BarcodeGraphic } from './BarcodeLabelModal.jsx';
 
 const ACTIONS = {
@@ -52,27 +52,34 @@ export default function GlobalScanModal({ scan, item, reserved, canManageLoans, 
       </header>
 
       <div className="global-scan-body">
-        <aside className="global-scan-visual-panel">
-          <div className="global-scan-beam" aria-hidden="true" />
-          {modelId ? <span className="global-scan-item-art" style={thumbStyle(modelId, 164, 22)} /> : <div className="global-scan-brand-mark" aria-hidden="true"><IconScan size={34} /><span>NEW</span></div>}
-          <div className="global-scan-barcode-card">
-            <div className="global-scan-barcode-brand"><img src="brand/msbm-lockup.png" alt="Mona School of Business & Management" /><span><b>LIVE SCAN</b><small>Inventory identification</small></span></div>
-            <div className="global-scan-barcode-bars"><BarcodeGraphic value={scan.value} height={48} width={1.45} displayValue={false} /></div>
-            <code>{scan.value}</code>
-          </div>
-          <span className={`global-scan-status ${statusKey}`}><i />{status}</span>
-          <small>Captured {new Date(scan.detectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small>
-        </aside>
-
         <main className="global-scan-content">
-          {item ? <>
-            <div className="global-scan-record-title"><span><small>{item.category || 'Inventory asset'}</small><h2>{item.name}</h2><code>{item.tag}</code></span>{item.serial && <span><small>Serial number</small><strong>{item.serial}</strong></span>}</div>
-            <div className="global-scan-facts">
-              <span><small>Location</small><strong>{item.location || 'Unassigned'}</strong><em>{item.room || 'No room recorded'}</em></span>
-              <span><small>{item.consumable ? 'Stock position' : item.status === 'On loan' ? 'Borrower' : 'Assignment'}</small><strong>{item.consumable ? `${Number(item.qty || 0)} on hand` : item.borrower || item.assignedTo || 'Not assigned'}</strong><em>{item.consumable ? `Minimum ${Number(item.min || 0)}` : item.due ? `Due ${item.due}` : item.condition || 'Condition not recorded'}</em></span>
+          <section className="global-scan-overview">
+            <div className="global-scan-visual-panel">
+              <div className="global-scan-beam" aria-hidden="true" />
+              {modelId ? <div className="global-scan-item-model" data-detail-model={glbUrl(modelId)} data-detail-interactive="false" data-detail-spin="true" data-detail-fps="60" data-detail-scale="1.3" aria-label={`${item?.name || reserved?.equipmentType || 'Scanned equipment'} 3D model`}><span className="dashboard-model-loader" aria-hidden="true" /></div> : <div className="global-scan-brand-mark" aria-hidden="true"><IconScan size={34} /><span>NEW</span></div>}
+              <span className={`global-scan-status ${statusKey}`}><i />{status}</span>
             </div>
-          </> : reserved ? <div className="global-scan-message reserved"><small>Generated inventory label</small><h2>Ready to register {reserved.equipmentType || 'new equipment'}</h2><p>This barcode was created by the system and is still unused. The equipment type and asset tag will be filled into the new inventory form automatically.</p><span><b>Category</b>{reserved.category || 'Inventory'}</span></div>
-            : <div className="global-scan-message unknown"><small>Exception detected</small><h2>This barcode is not in inventory</h2><p>It may be a new device, an unregistered manufacturer barcode, or a label that was deleted. Register it as a new asset or review it in the scanner console.</p></div>}
+
+            <div className="global-scan-summary">
+              {item ? <>
+                <div className="global-scan-record-title"><span><small>{item.category || 'Inventory asset'}</small><h2>{item.name}</h2><code>{item.tag}</code></span>{item.serial && <span><small>Serial number</small><strong>{item.serial}</strong></span>}</div>
+                <div className="global-scan-facts">
+                  <span><small>Location</small><strong>{item.location || 'Unassigned'}</strong><em>{item.room || 'No room recorded'}</em></span>
+                  <span><small>{item.consumable ? 'Stock position' : item.status === 'On loan' ? 'Borrower' : 'Assignment'}</small><strong>{item.consumable ? `${Number(item.qty || 0)} on hand` : item.borrower || item.assignedTo || 'Not assigned'}</strong><em>{item.consumable ? `Minimum ${Number(item.min || 0)}` : item.due ? `Due ${item.due}` : item.condition || 'Condition not recorded'}</em></span>
+                </div>
+              </> : reserved ? <div className="global-scan-message reserved"><small>Generated inventory label</small><h2>Ready to register {reserved.equipmentType || 'new equipment'}</h2><p>This barcode was created by the system and is still unused. The equipment type and asset tag will be filled into the new inventory form automatically.</p><span><b>Category</b>{reserved.category || 'Inventory'}</span></div>
+                : <div className="global-scan-message unknown"><small>Exception detected</small><h2>This barcode is not in inventory</h2><p>It may be a new device, an unregistered manufacturer barcode, or a label that was deleted. Register it as a new asset or review it in the scanner console.</p></div>}
+            </div>
+
+            <aside className="global-scan-code-panel">
+              <div className="global-scan-barcode-card">
+                <div className="global-scan-barcode-brand"><img src="brand/msbm-lockup.png" alt="Mona School of Business & Management" /><span><b>LIVE SCAN</b><small>Inventory identification</small></span></div>
+                <div className="global-scan-barcode-bars"><BarcodeGraphic value={scan.value} height={48} width={1.45} displayValue={false} /></div>
+                <code>{scan.value}</code>
+              </div>
+              <small>Captured {new Date(scan.detectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small>
+            </aside>
+          </section>
 
           <div className="global-scan-recommendation"><i>⌁</i><span><small>Smart Scan recommendation</small><strong>{recommendation.label}</strong><p>Based on the barcode record, item class, current status, and your access level.</p></span></div>
           <div className="global-scan-action-heading"><span><small>Available workflows</small><strong>Confirm the recommended action or choose another</strong></span><em>Only this scan is active.</em></div>

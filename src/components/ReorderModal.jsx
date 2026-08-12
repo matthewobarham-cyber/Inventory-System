@@ -11,25 +11,45 @@ export default function ReorderModal({ open, item, form, error, vendors = [], di
   const set = (key) => (event) => onChange(key, event.target.value);
   const qty = Math.max(0, parseInt(form.qty, 10) || 0);
   const unitCost = Math.max(0, parseFloat(form.unitCost) || 0);
+  const onHand = Math.max(0, Number(item.qty || 0));
+  const minimum = Math.max(0, Number(item.min || 0));
+  const shortage = Math.max(0, minimum - onHand);
+  const targetLevel = Math.max(minimum, minimum * 2);
+  const recommended = Math.max(1, targetLevel - onHand);
+  const projected = onHand + qty;
+  const projectedPercent = minimum ? Math.min(100, Math.round((projected / Math.max(1, targetLevel)) * 100)) : 100;
+  const deliveryDate = (days) => {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    onChange('expectedOn', date.toISOString().slice(0, 10));
+  };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,17,22,.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32, zIndex: 45 }}>
-      <div style={{ width: '100%', maxWidth: 620, background: '#fff', borderRadius: 12, overflow: 'hidden', animation: 'rise .18s ease' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #eceff3', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 15, fontWeight: 600 }}>{directOrder ? 'Create pending order' : 'Raise reorder requisition'}</span>
+    <div className="reorder-modal-backdrop">
+      <div className="reorder-modal-card">
+        <div className="reorder-modal-header">
+          <span><small>PROCUREMENT WORKFLOW</small><strong>{directOrder ? 'Create pending order' : 'Plan stock replenishment'}</strong><p>Review the stock position, choose an approved supplier and confirm the requirement.</p></span>
           <button type="button" onClick={onClose} className="btn-ghost" aria-label="Close reorder form" style={{ width: 28, height: 28, display: 'grid', placeItems: 'center', borderRadius: 7 }}>
             <IconX />
           </button>
         </div>
 
-        <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxHeight: '68vh', overflow: 'auto' }}>
-          <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: '#f7f9fb', border: '1px solid #eceff3', borderRadius: 9 }}>
+        <div className="reorder-modal-body">
+          <div className="reorder-item-summary">
             <span style={thumbStyle(item.model, 44, 7)}></span>
             <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={{ fontSize: 13.5, fontWeight: 600 }}>{item.name}</span>
               <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, color: '#7b8794' }}>{item.tag} · {item.location} · {item.room}</span>
             </span>
+            <b className={onHand === 0 ? 'depleted' : ''}>{onHand === 0 ? 'OUT OF STOCK' : 'LOW STOCK'}</b>
           </div>
+
+          <section className="reorder-stock-plan">
+            <header><span><small>STOCK POSITION</small><strong>Replenishment forecast</strong></span><em>Recommended order: {recommended}</em></header>
+            <div><span><small>On hand</small><strong>{onHand}</strong></span><span><small>Minimum</small><strong>{minimum}</strong></span><span><small>Shortfall</small><strong className="danger">{shortage}</strong></span><span><small>After delivery</small><strong className="success">{projected}</strong></span></div>
+            <i><b style={{ width: `${projectedPercent}%` }} /></i>
+            <p>{projected < minimum ? `This order still leaves stock ${minimum - projected} below minimum.` : projected < targetLevel ? 'This restores minimum stock, but remains below the recommended reserve.' : `This restores the recommended reserve of ${targetLevel}.`}</p>
+          </section>
 
           <label style={{ ...labelStyle, gridColumn: 'span 2' }}>
             <span style={captionStyle}>Approved vendor</span>
@@ -64,7 +84,8 @@ export default function ReorderModal({ open, item, form, error, vendors = [], di
 
           <label style={labelStyle}>
             <span style={captionStyle}>Quantity to order</span>
-            <input type="number" min="1" step="1" value={form.qty || ''} onChange={set('qty')} style={fieldStyle} />
+            <div className="reorder-quantity-control"><button type="button" onClick={() => onChange('qty', Math.max(1, qty - 1))}>−</button><input type="number" min="1" step="1" value={form.qty || ''} onChange={set('qty')} /><button type="button" onClick={() => onChange('qty', qty + 1)}>+</button></div>
+            <span className="reorder-presets"><button type="button" onClick={() => onChange('qty', Math.max(1, shortage))}>Cover shortage</button><button type="button" onClick={() => onChange('qty', recommended)}>Recommended {recommended}</button></span>
           </label>
 
           <label style={labelStyle}>
@@ -75,6 +96,7 @@ export default function ReorderModal({ open, item, form, error, vendors = [], di
           <label style={labelStyle}>
             <span style={captionStyle}>Expected delivery</span>
             <input type="date" value={form.expectedOn || ''} onChange={set('expectedOn')} style={fieldStyle} />
+            <span className="reorder-presets"><button type="button" onClick={() => deliveryDate(7)}>7 days</button><button type="button" onClick={() => deliveryDate(14)}>14 days</button><button type="button" onClick={() => deliveryDate(30)}>30 days</button></span>
           </label>
           <label style={labelStyle}>
             <span style={captionStyle}>Requisition number</span>
@@ -118,9 +140,9 @@ export default function ReorderModal({ open, item, form, error, vendors = [], di
               style={{ ...fieldStyle, height: 76, resize: 'vertical', padding: 10, lineHeight: 1.45 }} />
           </label>
 
-          <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 12px', background: '#eef4fb', border: '1px solid #d5e2f1', borderRadius: 8 }}>
-            <span style={{ fontSize: 12, color: '#3f4a56' }}>Estimated order total</span>
-            <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 600, color: '#0a3d7c' }}>{money(qty * unitCost)}</span>
+          <div className="reorder-total-card">
+            <span><small>Estimated commitment</small><strong>{qty} × {money(unitCost)}</strong></span>
+            <b>{money(qty * unitCost)}</b>
           </div>
 
           {!!error && (
@@ -128,9 +150,9 @@ export default function ReorderModal({ open, item, form, error, vendors = [], di
           )}
         </div>
 
-        <div style={{ padding: '14px 20px', borderTop: '1px solid #eceff3', display: 'flex', justifyContent: 'flex-end', gap: 9 }}>
+        <div className="reorder-modal-footer">
           <button type="button" className="btn-ghost" onClick={onClose} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Cancel</button>
-          <button type="button" className="btn-primary" onClick={onSubmit} style={{ height: 36, padding: '0 15px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}>{directOrder ? 'Create pending order' : 'Submit for approval'}</button>
+          <button type="button" className="btn-primary reorder-submit" onClick={onSubmit}>{directOrder ? 'Create pending order' : 'Submit requisition for approval'} →</button>
         </div>
       </div>
     </div>

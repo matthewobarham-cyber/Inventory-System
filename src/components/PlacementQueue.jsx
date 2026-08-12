@@ -4,7 +4,7 @@ import SortableHeader, { nextSort, sortRows } from './SortableHeader.jsx';
 import BarcodeLabelModal from './BarcodeLabelModal.jsx';
 import BulkBarcodeModal from './BulkBarcodeModal.jsx';
 
-export default function PlacementQueue({ placements, items = [], query, canSetUp, onSetUp }) {
+export default function PlacementQueue({ placements, items = [], query, canSetUp, onSetUp, onAcknowledge }) {
   const [statusFilter, setStatusFilter] = useState('Pending');
   const [sort, setSort] = useState({ key: 'received', direction: 'desc' });
   const [barcodeItems, setBarcodeItems] = useState([]);
@@ -46,11 +46,11 @@ export default function PlacementQueue({ placements, items = [], query, canSetUp
           {[['item', 'Received item'], ['supplier', 'Supplier'], ['quantity', 'Quantity'], ['received', 'Received'], ['location', 'Suggested location']].map(([column, label]) => <SortableHeader key={column} column={column} label={label} sort={sort} onSort={(key) => setSort((current) => nextSort(current, key))} />)}<span></span>
         </div>
         {sorted.map((item) => (
-          <div key={item.id} data-row="1" style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr .7fr 1fr 1.2fr .9fr', gap: 12, alignItems: 'center', padding: '11px 16px', borderBottom: '1px solid #f2f4f7', fontSize: 12.5 }}>
+          <div key={item.id} data-row="1" data-workflow-unread={item.workflowUnread ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr .7fr 1fr 1.2fr .9fr', gap: 12, alignItems: 'center', padding: '11px 16px', borderBottom: '1px solid #f2f4f7', fontSize: 12.5 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <span style={thumbStyle(item.model, 34, 6)}></span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                <span style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
+                <span style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}{item.workflowUnread && <i className="workflow-item-dot" title="New workflow item" />}</span>
                 <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10.5, color: '#7b8794' }}>{item.reference || item.orderId}</span>
               </span>
             </span>
@@ -63,7 +63,7 @@ export default function PlacementQueue({ placements, items = [], query, canSetUp
             <span style={{ color: '#3f4a56' }}>{item.location} · {item.room}</span>
             <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
               {canSetUp && item.status === 'Pending' ? (
-                <button type="button" className="btn-primary" onClick={() => onSetUp(item.id)} style={{ height: 30, padding: '0 11px', borderRadius: 7, fontSize: 11.5, fontWeight: 600 }}>Set up asset</button>
+                <button type="button" className="btn-primary" onClick={() => { onAcknowledge?.(item.id); onSetUp(item.id); }} style={{ height: 30, padding: '0 11px', borderRadius: 7, fontSize: 11.5, fontWeight: 600 }}>Set up asset</button>
               ) : <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ padding: '3px 8px', borderRadius: 999, background: '#f1f2f4', color: '#5b6672', fontSize: 10.5, fontWeight: 600 }}>{item.status}</span>
                 {!!linkedAssets(item).length && <button type="button" className="btn-primary" onClick={() => setBarcodeItems(linkedAssets(item))} style={{ height: 30, padding: '0 10px', borderRadius: 7, fontSize: 11 }}>Generate barcode{linkedAssets(item).length > 1 ? 's' : ''}</button>}

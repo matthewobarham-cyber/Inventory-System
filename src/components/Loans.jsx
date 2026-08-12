@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { thumbStyle, shortDate, iso, today } from '../data.js';
 import LoanEmailModal from './LoanEmailModal.jsx';
+import StocktakeFlag from './StocktakeFlag.jsx';
 
 const DAY = 86400000;
 const initials = (name) => String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
@@ -56,8 +57,8 @@ export default function Loans({ items, canReturn, sender, emailContacts, onAddEm
       {visible.map((item) => {
         const state = loanState(item);
         const days = daysUntil(item.due);
-        return <article className="loan-card" data-state={state} key={item.id}>
-          <header><button type="button" className="loan-asset-identity" onClick={() => onOpenItem(item.id)}><span style={thumbStyle(item.model, 46, 8)} /><span><small>{item.category || 'Equipment'}</small><strong>{item.name}</strong><code>{item.tag}</code></span></button><b>{state}</b></header>
+        return <article className="loan-card" data-state={state} data-stocktake-state={item.stocktakeState || undefined} key={item.id}>
+          <header><button type="button" className="loan-asset-identity" onClick={() => onOpenItem(item.id)}><span style={thumbStyle(item.model, 46, 8)} /><span><small>{item.category || 'Equipment'}</small><strong>{item.name}<StocktakeFlag item={item} /></strong><code>{item.tag}</code></span></button><b>{state}</b></header>
           <div className="loan-borrower"><span>{initials(item.borrower)}</span><div><small>Issued to</small><strong>{item.borrower || 'Borrower not recorded'}</strong><p>{item.borrowerEmail || 'No borrower email'} · Authorized by {item.issuedBy || 'not recorded'}</p></div></div>
           <div className="loan-dates"><span><small>Checked out</small><strong>{shortDate(item.since)}</strong></span><i>→</i><span><small>Return due</small><strong>{shortDate(item.due)}</strong></span></div>
           <div className="loan-life"><span><i style={{ width: `${loanProgress(item)}%` }} /></span><div><small>Loan period progress</small><strong>{days < 0 ? `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue` : days === 0 ? 'Due today' : `${days} day${days === 1 ? '' : 's'} remaining`}</strong></div></div>

@@ -3,7 +3,7 @@ import { thumbStyle } from '../data.js';
 
 const FILTERS = ['All', 'Pending', 'Approved', 'Declined'];
 
-export default function Requests({ requests, role, sessionName, focusRequestId, focusNonce, onApprove, onDecline }) {
+export default function Requests({ requests, role, sessionName, focusRequestId, focusNonce, onApprove, onDecline, onAcknowledge }) {
   const isStaff = role === 'Staff';
   const [filter, setFilter] = useState('All');
   const [declineCandidate, setDeclineCandidate] = useState(null);
@@ -37,11 +37,11 @@ export default function Requests({ requests, role, sessionName, focusRequestId, 
           const requisition = request.type === 'Requisition';
           const actionable = role === 'Admin' && request.state === 'Pending';
           return (
-            <article key={request.id} data-request-id={request.id} data-dashboard-focus={request.id === focusRequestId ? 'true' : undefined} className={`request-card request-${request.state.toLowerCase()}`}>
+            <article key={request.id} data-request-id={request.id} data-dashboard-focus={request.id === focusRequestId ? 'true' : undefined} data-workflow-unread={request.workflowUnread ? 'true' : undefined} onClick={() => onAcknowledge?.(request.id)} className={`request-card request-${request.state.toLowerCase()}`}>
               <span className="request-state-rail" />
               <div className="request-asset-block">
                 <span className="request-asset-thumb" style={thumbStyle(request.model, 62, 12)} />
-                <span><small>{requisition ? 'Purchase requisition' : 'Equipment request'}</small><strong>{request.itemName}</strong><code>{request.id}</code></span>
+                <span><small>{requisition ? 'Purchase requisition' : 'Equipment request'}</small><strong>{request.itemName}{request.workflowUnread && <i className="workflow-item-dot" title="New workflow item" />}</strong><code>{request.id}</code></span>
               </div>
               <div className="request-context">
                 <span className="request-person-mark">{String(request.by || '?').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</span>

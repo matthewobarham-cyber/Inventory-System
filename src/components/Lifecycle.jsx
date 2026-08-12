@@ -7,6 +7,7 @@ import {
 } from "../lifecycle.js";
 import { IconX } from "../icons.jsx";
 import SortableHeader, { nextSort, sortRows } from "./SortableHeader.jsx";
+import StocktakeFlag from "./StocktakeFlag.jsx";
 
 const ACTION_TYPES = ["Transfer", "Disposal", "Donation", "Loss", "Write-off"];
 const ACTIVE_ACTIONS = ["Pending approval", "Approved"];
@@ -168,7 +169,7 @@ function LifecycleAssetCard({ item, canManage, onConfigure, onOpen }) {
     : 0;
 
   return (
-    <article className={`lifecycle-asset-card lifecycle-tone-${life.tone}`}>
+    <article className={`lifecycle-asset-card lifecycle-tone-${life.tone}`} data-stocktake-state={item.stocktakeState || undefined}>
       <div className="lifecycle-card-accent" />
       <div className="lifecycle-card-main">
         <div className="lifecycle-asset-identity">
@@ -183,7 +184,7 @@ function LifecycleAssetCard({ item, canManage, onConfigure, onOpen }) {
             />
             <span>
               <small>{item.type || "Equipment"}</small>
-              <strong>{item.name}</strong>
+              <strong>{item.name}<StocktakeFlag item={item} /></strong>
               <span>
                 {item.tag} · {item.location} {item.room}
               </span>
@@ -645,6 +646,8 @@ export default function Lifecycle({
   query,
   canManage,
   canApprove,
+  createSignal = 0,
+  onCreateSignalHandled,
   onUpdateAsset,
   onCreateAction,
   onDecide,
@@ -812,6 +815,9 @@ export default function Lifecycle({
     setRequestError("");
     setRequestOpen(true);
   };
+  useEffect(() => {
+    if (createSignal && canManage) { openRequest(); onCreateSignalHandled?.(); }
+  }, [createSignal]);
   const saveRequest = () => {
     if (!requestForm.itemId) {
       setRequestError("Choose an asset.");

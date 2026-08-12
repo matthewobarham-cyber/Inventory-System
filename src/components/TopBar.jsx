@@ -1,7 +1,7 @@
 import { IconSearch, IconScan, IconPlus, IconArrowLeft, IconArrowRight, IconRefresh } from '../icons.jsx';
 
 export default function TopBar({
-  title, subtitle, query, onQuery, showSearch = true, canScan, onScan,
+  title, subtitle, query, onQuery, onSearchSubmit, showSearch = true, canScan, onScan,
   canEdit, onNewAsset, newLabel = 'New asset', canGoBack, canGoForward,
   onGoBack, onGoForward, onRefresh
 }) {
@@ -18,10 +18,14 @@ export default function TopBar({
         <small>{subtitle}</small>
       </div>
       {showSearch && (
-        <label className="workspace-nav-search">
+        <div className="workspace-nav-search">
           <IconSearch />
-          <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search name, tag, serial, room…" />
-        </label>
+          <input aria-label="Search records" value={query} onChange={(event) => onQuery(event.target.value)} onKeyDown={(event) => {
+            if (event.key === 'Enter') { event.preventDefault(); onSearchSubmit?.(); }
+            if (event.key === 'Escape') { event.preventDefault(); onQuery(''); event.currentTarget.blur(); }
+          }} placeholder="Search name, tag, serial, room…" />
+          {!!query && <button type="button" className="workspace-nav-search-clear" onClick={() => onQuery('')} aria-label="Clear search" title="Clear search">×</button>}
+        </div>
       )}
       <div className="workspace-nav-actions">
         {canScan && (

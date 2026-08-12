@@ -5,7 +5,7 @@ import { sortRows } from './SortableHeader.jsx';
 const currentIso = () => iso(today());
 const pillButton = { minHeight: 36, padding: '0 14px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, borderRadius: 999, fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', transition: 'transform .14s ease, box-shadow .14s ease, background .14s ease' };
 
-export default function PendingOrders({ orders, query, canReceive, onOpenItem, onReceive, onViewOrder, onPreviewApproval, onSendApproval }) {
+export default function PendingOrders({ orders, query, canReceive, onOpenItem, onReceive, onViewOrder, onPreviewApproval, onSendApproval, onAcknowledge }) {
   const [statusFilter, setStatusFilter] = useState('All');
   const [sort, setSort] = useState({ key: 'expected', direction: 'asc' });
   const list = useMemo(() => {
@@ -46,11 +46,12 @@ export default function PendingOrders({ orders, query, canReceive, onOpenItem, o
       const received = Math.max(0, Number(order.qty || 0) - remaining);
       const progress = Math.min(100, Math.round(received / Math.max(1, Number(order.qty || 1)) * 100));
       const pending = ['Pending', 'Partially received'].includes(order.status);
-      return <article key={order.id} className="order-card" data-late={late ? 'true' : 'false'}>
+      const review = (action) => { onAcknowledge?.(order.id); action(); };
+      return <article key={order.id} className="order-card" data-late={late ? 'true' : 'false'} data-workflow-unread={order.workflowUnread ? 'true' : undefined}>
         <header>
-          <button type="button" className="order-item-link" onClick={() => onOpenItem(order.itemId)}>
+          <button type="button" className="order-item-link" onClick={() => review(() => onOpenItem(order.itemId))}>
             <span style={thumbStyle(order.model, 48, 10)} />
-            <span><strong>{order.name}</strong><small>{order.tag}</small><i>{order.location} · {order.room}</i></span>
+            <span><strong>{order.name}{order.workflowUnread && <i className="workflow-item-dot" title="New workflow item" />}</strong><small>{order.tag}</small><i>{order.location} · {order.room}</i></span>
           </button>
           <span className="order-status" data-status={order.status}>{late ? 'Overdue' : order.status}</span>
         </header>
@@ -69,10 +70,10 @@ export default function PendingOrders({ orders, query, canReceive, onOpenItem, o
             <span data-tone={typeof order.labelsRequired === 'boolean' ? 'blue' : 'amber'}>{typeof order.labelsRequired === 'boolean' ? 'Label configuration checked' : 'Labels need review'}</span>
           </div>
           <div className="order-actions">
-            <button type="button" onClick={() => onViewOrder(order.id)} style={{ ...pillButton, border: '1px solid #ced8e2', color: '#465666', background: '#f5f7f9' }}><b>i</b> Details</button>
-            <button type="button" onClick={() => onPreviewApproval(order.id)} style={{ ...pillButton, border: '1px solid #d7c7e2', color: '#67367b', background: '#f5edf8' }}><b>PDF</b> Approval PDF</button>
-            <button type="button" onClick={() => onSendApproval(order.id)} style={{ ...pillButton, border: '1px solid #8bb8dc', color: '#fff', background: 'linear-gradient(135deg,#1673b8,#0d5894)', boxShadow: '0 7px 15px -10px #0d5894' }}><b>↗</b> Send for approval</button>
-            {canReceive && pending ? <button type="button" onClick={() => onReceive(order.id)} style={{ ...pillButton, border: '1px solid #71b795', color: '#fff', background: 'linear-gradient(135deg,#21825e,#156848)', boxShadow: '0 7px 15px -10px #156848' }}><b>✓</b> Receive order</button> : <span className="order-complete-pill">{order.status}</span>}
+            <button type="button" onClick={() => review(() => onViewOrder(order.id))} style={{ ...pillButton, border: '1px solid #ced8e2', color: '#465666', background: '#f5f7f9' }}><b>i</b> Details</button>
+            <button type="button" onClick={() => review(() => onPreviewApproval(order.id))} style={{ ...pillButton, border: '1px solid #d7c7e2', color: '#67367b', background: '#f5edf8' }}><b>PDF</b> Approval PDF</button>
+            <button type="button" onClick={() => review(() => onSendApproval(order.id))} style={{ ...pillButton, border: '1px solid #8bb8dc', color: '#fff', background: 'linear-gradient(135deg,#1673b8,#0d5894)', boxShadow: '0 7px 15px -10px #0d5894' }}><b>↗</b> Send for approval</button>
+            {canReceive && pending ? <button type="button" onClick={() => review(() => onReceive(order.id))} style={{ ...pillButton, border: '1px solid #71b795', color: '#fff', background: 'linear-gradient(135deg,#21825e,#156848)', boxShadow: '0 7px 15px -10px #156848' }}><b>✓</b> Receive order</button> : <span className="order-complete-pill">{order.status}</span>}
           </div>
         </footer>
       </article>;

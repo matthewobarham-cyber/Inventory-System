@@ -70,7 +70,7 @@ export default function OrderApprovalModal({ order, sender, approvalContacts = [
     try {
       const result = await openOutlookCompose({ to: selected.email, cc: form.cc, subject: form.subject, body: form.body });
       if (result?.ok === false) throw new Error(result.error || 'Outlook Web could not be opened.');
-      onPrepared({ to: selected.email, approverName: selected.name, cc: form.cc.trim(), subject: form.subject, filename: pdf.filename, path: pdf.path, bodyCopied: false });
+      onPrepared({ to: selected.email, approverName: selected.name, cc: form.cc.trim(), subject: form.subject, filename: pdf.filename, path: pdf.path, bodyCopied: !!result?.bodyCopied });
       onClose();
     } catch (caught) { setError(caught.message || 'The approval handoff could not be prepared.'); }
     finally { setBusy(false); }
