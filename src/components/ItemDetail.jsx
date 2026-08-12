@@ -7,7 +7,7 @@ import { bookValueFor, expectedReplacementFor } from '../lifecycle.js';
 import StocktakeFlag from './StocktakeFlag.jsx';
 
 export default function ItemDetail({
-  item, history, maintenanceTickets = [], lifecycleActions = [], canLoanNow, isStaff, canEdit, canDelete, onBack, onOpenCheckout, onRequestBorrow, onOpenEdit, onDelete, onGenerateInvoice, onReorder, onOpenLifecycle,
+  item, history, maintenanceTickets = [], lifecycleActions = [], canLoanNow, isStaff, borrowingApproved = false, canEdit, canDelete, onBack, onOpenCheckout, onRequestBorrow, onOpenEdit, onDelete, onGenerateInvoice, onReorder, onOpenLifecycle,
   pendingOrder, pendingPlacement, onViewOrder, onOpenPlacements
 }) {
   const [spin, setSpin] = useState(true);
@@ -90,7 +90,7 @@ export default function ItemDetail({
   ];
 
   const st = effStatus(item);
-  const canCheckout = canLoanNow && !item.archived && !item.consumable && item.status === 'In stock';
+  const canCheckout = canLoanNow && borrowingApproved && !item.archived && !item.consumable && item.status === 'In stock';
 
   return (
     <div style={{ maxWidth: 1420, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -176,6 +176,7 @@ export default function ItemDetail({
               </div>
             </div>
             {['Missing', 'Wrong location', 'Quantity mismatch'].includes(item.stocktakeState) && <div className={`stocktake-asset-alert ${item.stocktakeState === 'Missing' ? 'missing' : 'warning'}`}><StocktakeFlag item={item} label /><span><strong>{item.stocktakeState === 'Missing' ? 'This asset was not found during physical verification.' : item.stocktakeState === 'Wrong location' ? 'This asset was found outside its recorded location.' : 'The physical quantity did not match the inventory record.'}</strong><small>{item.stocktakeSessionTitle || item.stocktakeSessionId}{item.stocktakeScope ? ` · ${item.stocktakeScope}` : ''}</small></span></div>}
+            {!item.consumable && <div style={{ marginTop: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8, borderRadius: 8, background: borrowingApproved ? '#eaf5ee' : '#f3f5f7', color: borrowingApproved ? '#155e3f' : '#5e6974', fontSize: 11.5, fontWeight: 600 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: borrowingApproved ? '#1c7c54' : '#8a96a2' }} />{borrowingApproved ? 'Approved for TSR checkout and staff requests' : 'Restricted from borrowing'}</div>}
             {pendingOrder && (
               <button type="button" onClick={() => onViewOrder(pendingOrder.id)} style={{ marginTop: 10, minHeight: 34, padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 8, background: '#fdf6e9', border: '1px solid #f1d5ad', borderRadius: 8, color: '#8a5209', textAlign: 'left', cursor: 'pointer' }}>
                 <span style={{ width: 7, height: 7, flex: 'none', borderRadius: '50%', background: '#b8710f' }}></span>
@@ -205,7 +206,7 @@ export default function ItemDetail({
                   <span>Check out</span>
                 </button>
               )}
-              {isStaff && !item.archived && item.status === 'In stock' && !item.consumable && (
+              {isStaff && borrowingApproved && !item.archived && item.status === 'In stock' && !item.consumable && (
                 <button type="button" className="btn-primary" onClick={onRequestBorrow} style={{ height: 36, display: 'flex', alignItems: 'center', gap: 7, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}>
                   <span>Request to borrow</span>
                 </button>

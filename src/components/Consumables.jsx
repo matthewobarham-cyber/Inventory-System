@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import { BUILDINGS, glbUrl, isLowStock, money } from '../data.js';
 import { IconX } from '../icons.jsx';
 import { Inv3D } from '../three-engine.js';
+import BarcodeLabelModal from './BarcodeLabelModal.jsx';
 import StocktakeFlag from './StocktakeFlag.jsx';
 
 const field = { height: 38, padding: '0 10px', border: '1px solid #d9e1e9', borderRadius: 8, background: '#fff', fontSize: 12.5 };
@@ -56,7 +57,7 @@ function ModelStage({ url, label, className = '' }) {
 }
 
 function StockState({ item }) {
-  if (!item) return <span className="consumable-stock-state missing">Not linked</span>;
+  if (!item) return <span className="consumable-stock-state empty">Depleted</span>;
   const quantity = Number(item.qty || 0);
   if (quantity === 0) return <span className="consumable-stock-state empty">Depleted</span>;
   if (isLowStock(item)) return <span className="consumable-stock-state low">Low stock</span>;
@@ -81,6 +82,7 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
   const [tonerRecordId, setTonerRecordId] = useState('');
   const [tonerForm, setTonerForm] = useState({ qty: 1, issuedTo: '', department: '', purpose: '', notes: '', batchNumber: '', stockCode: '', storageLocation: '', storageRoom: '' });
   const [error, setError] = useState('');
+  const [barcodeItem, setBarcodeItem] = useState(null);
 
   const allConsumables = useMemo(() => items.filter((item) => item.consumable && !item.archived && item.status !== 'Retired'), [items]);
   const allPrinters = useMemo(() => items.filter(isPrinterDevice).sort((a, b) => a.name.localeCompare(b.name) || a.tag.localeCompare(b.tag)), [items]);
@@ -132,20 +134,22 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
   };
   const confirmTonerAction = () => {
     const record = tonerAction?.records.find((item) => item.id === tonerRecordId);
-    const issue = record
+    const result = record
       ? tonerMode === 'take' ? onUse(record.id, tonerForm) : onAddStock(record.id, { ...tonerForm, printerId: tonerAction.printer.id, printerName: tonerAction.printer.name })
       : onCreateTonerMovement(tonerAction.printer.id, tonerAction.color.label, tonerMode, tonerForm);
+    const issue = typeof result === 'string' ? result : result?.error;
     if (issue) { setError(issue); return; }
     setTonerAction(null);
   };
   const quickTonerChange = (printer, color, records, direction) => {
     const record = direction < 0 ? records.find((item) => Number(item.qty || 0) > 0) || records[0] : records[0];
     const context = `${printer.location || ''}${printer.room ? ` · ${printer.room}` : ''}`;
-    const issue = record
+    const result = record
       ? direction > 0
         ? onAddStock(record.id, { qty: 1, notes: `Quick stock addition for ${printer.name} (${printer.tag})`, printerId: printer.id, printerName: printer.name })
         : onUse(record.id, { qty: 1, issuedTo: printer.name, department: context, purpose: `Installed in ${printer.name} (${printer.tag})`, notes: 'Quick toner issue from printer tile' })
       : onCreateTonerMovement(printer.id, color.label, direction > 0 ? 'add' : 'take', { qty: 1, issuedTo: printer.name, department: context, purpose: `Installed in ${printer.name} (${printer.tag})`, notes: direction > 0 ? `First toner stock added for ${printer.name} (${printer.tag})` : 'Untracked toner installation recorded from printer tile', storageLocation: printer.location || 'Storage room', storageRoom: printer.room || 'Main storage' });
+    const issue = typeof result === 'string' ? result : result?.error;
     if (issue) window.alert(issue);
   };
   const openMapping = (item) => { setMapping(item); setMappedIds(Array.isArray(item.compatiblePrinterIds) ? item.compatiblePrinterIds : []); };
@@ -234,14 +238,18 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
                       <button type="button" onClick={(event) => { event.stopPropagation(); onOpenItem(item.id); }}>{item.name}</button>
                       <code>{item.stockCode || item.tag}</code>
                       <div className="ink-stock-line"><strong>{quantity}</strong><span>{item.unitOfMeasure || 'units'} on hand<small>Minimum {item.min || 0}</small></span></div>
+                      <button type="button" className="ink-barcode-button" onClick={(event) => { event.stopPropagation(); setBarcodeItem(item); }}><span aria-hidden="true">▥</span> Print barcode</button>
                       <p><b>Stored:</b> {item.location || 'Unassigned'} · {item.room || 'No room'}</p>
                       {records.length > 1 && <small>{records.length} linked stock records combined</small>}
                     </> : <>
-                      <p className="ink-missing-copy">No {color.label.toLowerCase()} stock record is linked to this printer.</p>
-                      <small>{canManage ? 'Click anywhere on this tile to link or create this ink.' : 'A manager must link a compatible stock record.'}</small>
+                      <strong className="ink-placeholder-name">{color.label} Printer Toner Cartridge</strong>
+                      <code className="ink-placeholder-code">Not registered</code>
+                      <div className="ink-stock-line"><strong>0</strong><span>cartridge on hand<small>Minimum 1</small></span></div>
+                      <button type="button" className="ink-barcode-button ink-barcode-placeholder" disabled title="A barcode is created when the first toner is added"><span aria-hidden="true">▥</span> Barcode after first addition</button>
+                      <p><b>Stored:</b> {printer.location || 'Unassigned'} · {printer.room || 'No room'}</p>
                     </>}
                   </div>
-                  {canManage && <footer className="ink-inline-controls" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><button type="button" className="ink-quantity-button remove" disabled={!!item && quantity < 1} onClick={() => quickTonerChange(printer, color, records, -1)} aria-label={`Take one ${color.label} toner for ${printer.name}`} title="Take or install one toner"><b>−</b><span>Take one</span></button><button type="button" className="ink-quantity-button add" onClick={() => quickTonerChange(printer, color, records, 1)} aria-label={`Add one ${color.label} toner for ${printer.name}`} title="Add one toner to stock"><b>+</b><span>Add one</span></button></footer>}
+                  {canManage && <footer className="ink-inline-controls" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><button type="button" className="ink-quantity-button remove" disabled={quantity < 1} onClick={() => quickTonerChange(printer, color, records, -1)} aria-label={`Take one ${color.label} toner for ${printer.name}`} title="Take or install one toner"><b>−</b><span>Take one</span></button><button type="button" className="ink-quantity-button add" onClick={() => quickTonerChange(printer, color, records, 1)} aria-label={`Add one ${color.label} toner for ${printer.name}`} title="Add one toner to stock"><b>+</b><span>Add one</span></button></footer>}
                 </div>;
               })}
             </div>
@@ -314,6 +322,7 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
     </div></Modal>}
 
     {mapping && <Modal title="Printer compatibility" subtitle={`${mapping.name} · choose every printer that uses this supply`} onClose={() => setMapping(null)}><div style={{ maxHeight: 430, overflow: 'auto', display: 'grid', gap: 7 }}>{printers.map((printer) => <label key={printer.id} style={{ padding: '10px 11px', display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #dfe5eb', borderRadius: 8, cursor: 'pointer' }}><input type="checkbox" checked={mappedIds.includes(printer.id)} onChange={(event) => setMappedIds((current) => event.target.checked ? [...current, printer.id] : current.filter((id) => id !== printer.id))} /><span style={{ flex: 1 }}><strong style={{ display: 'block', fontSize: 12 }}>{printer.name} · {printer.tag}</strong><small style={{ color: '#6e7d8c' }}>{printer.location} · {printer.room}{printer.modelNumber ? ` · ${printer.modelNumber}` : ''}</small></span></label>)}{!printers.length && <div style={{ padding: 28, textAlign: 'center', color: '#7b8794' }}>No printer assets are currently recorded in Inventory.</div>}</div><div style={{ marginTop: 15, display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button type="button" className="btn-ghost" onClick={() => setMapping(null)}>Cancel</button><button type="button" className="btn-primary" onClick={saveMapping}>Save compatibility</button></div></Modal>}
+    <BarcodeLabelModal open={Boolean(barcodeItem)} item={barcodeItem} onClose={() => setBarcodeItem(null)} />
   </div>;
 }
 

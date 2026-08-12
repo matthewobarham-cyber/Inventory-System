@@ -10,7 +10,7 @@ import { classifyEquipment } from './csv-import.js';
 import { Inv3D } from './three-engine.js';
 import {
   supabaseConfigured, signInWithSupabase, loadSupabaseSessionAccount, listSupabaseAccounts,
-  createSupabaseAccount, updateSupabaseProfile, updateOwnSupabaseAvatar,
+  createSupabaseAccount, resetSupabaseAccountPassword, updateSupabaseProfile, updateOwnSupabaseAvatar,
   requestSupabasePasswordReset, updateSupabasePassword, subscribeToPasswordRecovery, signOutSupabase,
   loadSupabaseCsvSnapshot, storeSupabaseCsvImport
 } from './supabase.js';
@@ -19,6 +19,7 @@ import Titlebar from './components/Titlebar.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import TopBar from './components/TopBar.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
+import { rememberSuccessfulLogin } from './recent-logins.js';
 import PasswordRecoveryModal from './components/PasswordRecoveryModal.jsx';
 import GlobalScanModal from './components/GlobalScanModal.jsx';
 import Toast from './components/Toast.jsx';
@@ -105,8 +106,15 @@ const formatMsbmAssetTag = (code, sequence, dateValue = new Date()) => {
 };
 
 function freshWorld() {
-  return { items: [], history: [], requests: [], orders: [], placements: [], stocktakes: [], repairTickets: [], maintenanceSchedules: [], lifecycleActions: [], procurementRecords: [], importRuns: [], csvCloudCursor: '', auditLog: [], userState: {}, profileState: {}, customAccounts: [], reservedBarcodes: [], approvedVendors: [], approvalContacts: [], maintenanceContacts: [], loanContacts: [], consumableUsage: [] };
+  return { items: [], history: [], requests: [], orders: [], placements: [], stocktakes: [], repairTickets: [], maintenanceSchedules: [], lifecycleActions: [], procurementRecords: [], importRuns: [], csvCloudCursor: '', auditLog: [], userState: {}, profileState: {}, customAccounts: [], reservedBarcodes: [], approvedVendors: [], approvalContacts: [], maintenanceContacts: [], loanContacts: [], consumableUsage: [], borrowCategoryAccess: {} };
 }
+
+const isBorrowingApproved = (item, categoryAccess = {}) => {
+  if (!item || item.archived || item.consumable) return false;
+  if (item.borrowEligibility === 'allowed') return true;
+  if (item.borrowEligibility === 'blocked') return false;
+  return categoryAccess[item.category] === true;
+};
 
 const mergeCachedCsvRecords = (local = [], cloud = []) => {
   const merged = new Map();
@@ -202,6 +210,7 @@ export default function App() {
   const [maintenanceContacts, setMaintenanceContacts] = useState([]);
   const [loanContacts, setLoanContacts] = useState([]);
   const [consumableUsage, setConsumableUsage] = useState([]);
+  const [borrowCategoryAccess, setBorrowCategoryAccess] = useState({});
   const [consumableScannerAction, setConsumableScannerAction] = useState(null);
   const [blankBarcodeOpen, setBlankBarcodeOpen] = useState(false);
 
@@ -401,6 +410,7 @@ export default function App() {
       setMaintenanceContacts(asArray(world.maintenanceContacts));
       setLoanContacts(asArray(world.loanContacts));
       setConsumableUsage(asArray(world.consumableUsage));
+      setBorrowCategoryAccess(world.borrowCategoryAccess && typeof world.borrowCategoryAccess === 'object' ? world.borrowCategoryAccess : {});
       const normalizedNav = normalizeNavOverrides(world.navOverrides);
       setNavOverrides(normalizedNav);
 
@@ -430,13 +440,23 @@ export default function App() {
         } else {
           const pointer = loadSessionPointer();
           const demo = pointer?.source === 'demo' ? ACCOUNTS.find((entry) => entry.email === pointer.email) : null;
+          const local = pointer?.source === 'local'
+            ? asArray(world.customAccounts).find((entry) => entry.email === pointer.email)
+            : null;
           if (demo && (world.userState || {})[demo.email] !== false) {
             await waitForWarmup(modelWarmup.current);
             if (cancelled) return;
             setWorkspaceMounted(true);
             setSession({ ...demo, source: 'demo' });
             setScreen(normalizedNav[demo.role]?.[0] || NAV[demo.role][0]);
-          } else if (pointer?.source === 'demo') clearSessionPointer();
+          } else if (local && (world.userState || {})[local.email] !== false) {
+            await waitForWarmup(modelWarmup.current);
+            if (cancelled) return;
+            const { passwordHash: _passwordHash, ...safeLocal } = local;
+            setWorkspaceMounted(true);
+            setSession({ ...safeLocal, ...((world.profileState || {})[local.email] || {}), source: 'local' });
+            setScreen(normalizedNav[local.role]?.[0] || NAV[local.role][0]);
+          } else if (pointer?.source === 'demo' || pointer?.source === 'local') clearSessionPointer();
         }
       } else {
         const pointer = loadSessionPointer();
@@ -462,7 +482,7 @@ export default function App() {
   // ---- persist world on every mutation (skips the initial hydration write) ----
   useEffect(() => {
     if (!hydrated.current) return;
-    const snapshot = { items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage };
+    const snapshot = { items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, borrowCategoryAccess };
     let cancelled = false;
     let retryTimer = null;
     let saveTimer = null;
@@ -478,7 +498,7 @@ export default function App() {
     // Coalesce rapid UI mutations (typing, scans, bulk updates) into one disk write.
     saveTimer = setTimeout(attempt, 250);
     return () => { cancelled = true; if (saveTimer) clearTimeout(saveTimer); if (retryTimer) clearTimeout(retryTimer); };
-  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, persistenceEpoch]);
+  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, borrowCategoryAccess, persistenceEpoch]);
 
   // Keep browser-style navigation local to the signed-in workspace.
   useEffect(() => {
@@ -572,8 +592,7 @@ export default function App() {
 
   // ---- derived ----
   const role = session ? session.role : null;
-  const isDemoSession = session?.source === 'demo';
-  const cloudSession = supabaseConfigured && !isDemoSession;
+  const cloudSession = supabaseConfigured && session?.source === 'supabase';
   const isAdmin = role === 'Admin';
   const canEdit = role === 'Admin' || role === 'Student assistant';
   const canLoanNow = canEdit;
@@ -605,6 +624,9 @@ export default function App() {
     return result ? { ...item, stocktakeState: result.state, stocktakeRecordedAt: result.recordedAt, stocktakeSessionId: result.sessionId, stocktakeSessionTitle: result.sessionTitle, stocktakeNote: result.note, stocktakeScope: result.scope } : item;
   }), [items, stocktakeStateByItem]);
   const activeItems = useMemo(() => displayItems.filter((item) => !item.archived), [displayItems]);
+  const staffVisibleItems = useMemo(() => isStaff
+    ? activeItems.filter((item) => item.consumable || isBorrowingApproved(item, borrowCategoryAccess))
+    : activeItems, [activeItems, borrowCategoryAccess, isStaff]);
   const onLoan = useMemo(() => activeItems.filter((i) => i.status === 'On loan'), [activeItems]);
   const low = useMemo(() => activeItems.filter(isLowStock), [activeItems]);
   const pending = useMemo(() => requests.filter((r) => r.state === 'Pending'), [requests]);
@@ -617,17 +639,17 @@ export default function App() {
   const globallyScannedItem = useMemo(() => {
     if (!detectedScan) return null;
     const value = detectedScan.value.toUpperCase();
-    return activeItems.find((item) => String(item.tag || '').toUpperCase() === value || String(item.serial || '').toUpperCase() === value) || null;
-  }, [activeItems, detectedScan]);
+    return staffVisibleItems.find((item) => String(item.tag || '').toUpperCase() === value || String(item.serial || '').toUpperCase() === value) || null;
+  }, [staffVisibleItems, detectedScan]);
   const globallyScannedReservation = useMemo(() => {
     if (!detectedScan) return null;
     return reservedBarcodes.find((entry) => entry.status !== 'Voided' && String(entry.tag || '').toUpperCase() === detectedScan.value.toUpperCase()) || null;
   }, [reservedBarcodes, detectedScan]);
   const accounts = useMemo(() => {
-    const source = supabaseConfigured && !isDemoSession ? remoteAccounts : [...ACCOUNTS, ...customAccounts];
-    const merged = new Map(source.map(({ passwordHash, ...account }) => [account.email, { ...account, ...(supabaseConfigured && !isDemoSession ? {} : (profileState[account.email] || {})) }]));
+    const source = cloudSession ? remoteAccounts : [...ACCOUNTS, ...customAccounts];
+    const merged = new Map(source.map(({ passwordHash, ...account }) => [account.email, { ...account, ...(cloudSession ? {} : (profileState[account.email] || {})) }]));
     return [...merged.values()];
-  }, [customAccounts, profileState, remoteAccounts, isDemoSession]);
+  }, [customAccounts, profileState, remoteAccounts, cloudSession]);
   const checkoutTsrs = useMemo(() => accounts.filter((account) => (account.tsr || account.role === 'Admin') && userState[account.email] !== false), [accounts, userState]);
   const maintenanceEmailContacts = useMemo(() => {
     const contacts = new Map();
@@ -738,10 +760,15 @@ export default function App() {
     if (target === 'requests') setRequests((current) => current.map((entry) => entry.id === id ? { ...entry, workflowUnread: false } : entry));
   }, []);
   const openItem = useCallback((id) => {
+    const requestedItem = items.find((item) => item.id === id);
+    if (isStaff && requestedItem && !requestedItem.consumable && !isBorrowingApproved(requestedItem, borrowCategoryAccess)) {
+      toast('This asset is not available in the staff borrowing catalogue');
+      return;
+    }
     setFilters((current) => current.query ? { ...current, query: '' } : current);
     setScreen('item');
     setSelectedId(id);
-  }, []);
+  }, [borrowCategoryAccess, isStaff, items]);
 
   const openDashboardSummary = useCallback((target) => {
     const destinations = { assets: 'inventory', inventory: 'inventory', loans: 'loans', alerts: 'alerts', requests: 'requests', orders: 'orders', placements: 'placements', reports: 'reports' };
@@ -801,17 +828,18 @@ export default function App() {
   const submitGlobalSearch = useCallback(() => {
     const term = filters.query.trim().toLowerCase();
     if (!term) return;
-    const matches = activeItems.filter((item) => [item.name, item.tag, item.serial, item.location, item.room, item.category, item.model]
+    const matches = staffVisibleItems.filter((item) => [item.name, item.tag, item.serial, item.location, item.room, item.category, item.model]
       .some((value) => String(value || '').toLowerCase().includes(term)));
     const exact = matches.find((item) => [item.tag, item.serial, item.name].some((value) => String(value || '').toLowerCase() === term));
     if (exact || matches.length === 1) openItem((exact || matches[0]).id);
-  }, [activeItems, filters.query, openItem]);
+  }, [staffVisibleItems, filters.query, openItem]);
 
   // ---- auth ----
-  const login = async (email, pass, remember) => {
+  const login = async (email, pass, remember, playSuccessTransition) => {
     const normalizedEmail = email.trim().toLowerCase();
     let account;
-    if (supabaseConfigured) {
+    const custom = customAccounts.find((entry) => entry.email.toLowerCase() === normalizedEmail);
+    if (supabaseConfigured && !custom) {
       try {
         account = await signInWithSupabase(normalizedEmail, pass);
         let cloudAccounts = [account];
@@ -822,48 +850,52 @@ export default function App() {
         return { error: authError?.message || 'Invalid email or password.' };
       }
     } else {
-      account = accounts.find((entry) => entry.email.toLowerCase() === normalizedEmail);
-      const custom = customAccounts.find((entry) => entry.email.toLowerCase() === normalizedEmail);
-      const expectedHash = LOCAL_PASSWORD_HASHES[normalizedEmail] || custom?.passwordHash;
+      const localAccount = custom || ACCOUNTS.find((entry) => entry.email.toLowerCase() === normalizedEmail);
+      const expectedHash = custom?.passwordHash || LOCAL_PASSWORD_HASHES[normalizedEmail];
+      const { passwordHash: _passwordHash, ...safeAccount } = localAccount || {};
+      account = localAccount ? { ...safeAccount, ...(profileState[localAccount.email] || {}), source: 'local' } : null;
       if (!account || userState[account.email] === false || !expectedHash || await hashPassword(pass) !== expectedHash) return { error: 'Invalid email or password.' };
-      saveSessionPointer({ email: account.email }, remember);
+      saveSessionPointer({ email: account.email, source: 'local' }, remember);
     }
+    await rememberSuccessfulLogin(account, pass);
+    await playSuccessTransition?.();
     setWorkspaceMounted(false);
     setLoginPhase('Opening your secure workspace');
     setSession(account);
     setScreen((navOverrides[account.role] || NAV[account.role])[0]);
     await afterNextPaint();
-    if (supabaseConfigured) {
+    if (account.source === 'supabase') {
       setLoginPhase('Synchronizing the shared CSV archive');
       try { await syncSharedCsvCache(); }
       catch (syncError) { console.error('Shared CSV sync failed; continuing with the local cache', syncError); }
     }
-    setWorkspaceMounted(true);
     setLoginPhase('Preparing inventory, consumables, and dashboard');
     await afterNextPaint();
     setLoginPhase('Loading 3D equipment and workspace data');
-    await modelWarmup.current;
+    await waitForWarmup(modelWarmup.current);
+    setWorkspaceMounted(true);
     await afterNextPaint();
     Inv3D.sync();
     await afterNextPaint();
     setLoginPhase('');
     return {};
   };
-  const demoLogin = async (email, remember) => {
+  const demoLogin = async (email, remember, playSuccessTransition) => {
     const demo = ACCOUNTS.find((entry) => entry.email === email);
     const account = demo ? { ...demo, source: 'demo' } : null;
     if (!account || userState[account.email] === false) return { error: 'This demo account is unavailable.' };
     saveSessionPointer({ email: account.email, source: 'demo' }, remember);
+    await playSuccessTransition?.();
     setWorkspaceMounted(false);
     setLoginPhase('Opening your secure workspace');
     setSession(account);
     setScreen((navOverrides[account.role] || NAV[account.role])[0]);
     await afterNextPaint();
-    setWorkspaceMounted(true);
     setLoginPhase('Preparing inventory, consumables, and dashboard');
     await afterNextPaint();
     setLoginPhase('Loading 3D equipment and workspace data');
-    await modelWarmup.current;
+    await waitForWarmup(modelWarmup.current);
+    setWorkspaceMounted(true);
     await afterNextPaint();
     Inv3D.sync();
     await afterNextPaint();
@@ -992,6 +1024,7 @@ export default function App() {
       model: selectedModel.id, tag: nextAssetTag(selectedModel.id), serial: '', _autoTag: true,
       location: BUILDINGS[0], room: 'A-101', qty: 1, min: 0, condition: 'New', cost: selectedModel.cost,
       unitOfMeasure: 'unit', batchNumber: '', expiryDate: '', stockCode: '', color: '', compatiblePrinterIds: [],
+      borrowEligibility: 'inherit',
       supplier: SUPPLIERS[0], assignedTo: '', purchased: iso(today()), warranty: iso(new Date(today().getFullYear() + 3, today().getMonth(), today().getDate())),
       depreciationMethod: 'Straight-line', usefulLifeYears: 5, salvageValue: 0,
       expectedReplacementDate: iso(new Date(today().getFullYear() + 5, today().getMonth(), today().getDate()))
@@ -1008,6 +1041,7 @@ export default function App() {
       id: sel.id, model: sel.model, tag: sel.tag, serial: sel.serial, location: sel.location, room: sel.room,
       qty: sel.qty, min: sel.min, condition: sel.condition, cost: sel.cost, supplier: sel.supplier, assignedTo: sel.assignedTo || '',
       unitOfMeasure: sel.unitOfMeasure || 'unit', batchNumber: sel.batchNumber || '', expiryDate: sel.expiryDate || '', stockCode: sel.stockCode || '', color: sel.color || '', compatiblePrinterIds: asArray(sel.compatiblePrinterIds),
+      borrowEligibility: sel.borrowEligibility || 'inherit',
       purchased: sel.purchased || iso(today()), warranty: sel.warranty,
       depreciationMethod: sel.depreciationMethod || 'Straight-line', usefulLifeYears: sel.usefulLifeYears || 5,
       salvageValue: sel.salvageValue || 0, expectedReplacementDate: sel.expectedReplacementDate || ''
@@ -1063,6 +1097,7 @@ export default function App() {
       supplier: form.supplier, assignedTo: (form.assignedTo || '').trim(), purchased: form.purchased || iso(today()), warranty: form.warranty,
       unitOfMeasure: m.cons === 1 ? (form.unitOfMeasure || 'unit').trim() : 'item', batchNumber: m.cons === 1 ? (form.batchNumber || '').trim() : '', expiryDate: m.cons === 1 ? form.expiryDate || '' : '',
       stockCode: m.cons === 1 ? (form.stockCode || '').trim() : '', color: m.cons === 1 ? (form.color || '').trim() : '', compatiblePrinterIds: m.cons === 1 ? asArray(form.compatiblePrinterIds) : [],
+      borrowEligibility: m.cons === 1 ? 'blocked' : (['allowed', 'blocked'].includes(form.borrowEligibility) ? form.borrowEligibility : 'inherit'),
       depreciationMethod: form.depreciationMethod || 'Straight-line', usefulLifeYears: Math.max(1, parseInt(form.usefulLifeYears, 10) || 5),
       salvageValue: Math.max(0, parseFloat(form.salvageValue) || 0), expectedReplacementDate: form.expectedReplacementDate || ''
     };
@@ -1080,7 +1115,8 @@ export default function App() {
       toast('Record updated — ' + rec.tag);
     } else {
       const id = 'itm' + Date.now();
-      setItems((prev) => [{ id, status: 'In stock', purchased: iso(today()), loanCount: 0, borrower: null, due: null, since: null, ...rec, ...(sourcePlacement ? { sourcePlacementId: sourcePlacement.id } : { receivedOn: iso(today()), receivedBy: session.name, receivedCompany: rec.supplier, receiptSource: 'manual', invoiceRequired: true }) }, ...prev]);
+      const createdAt = new Date().toISOString();
+      setItems((prev) => [{ id, status: 'In stock', purchased: iso(today()), loanCount: 0, borrower: null, due: null, since: null, createdAt, createdBy: session.name, ...rec, ...(sourcePlacement ? { sourcePlacementId: sourcePlacement.id } : { receivedOn: iso(today()), receivedBy: session.name, receivedCompany: rec.supplier, receiptSource: 'manual', invoiceRequired: true }) }, ...prev]);
       logAudit('Asset created', `${rec.name} (${rec.tag})${rec.consumable ? ` — quantity ${rec.qty}` : ''}`);
       if (sourcePlacement) {
         const remainingQty = sourcePlacement.remainingQty - 1;
@@ -1100,9 +1136,11 @@ export default function App() {
       setFormOpen(false);
       setPlacementSource(null);
       setPlacementProgress(null);
-      setScreen('inventory');
-      setView('grid');
-      toast('Asset added — ' + rec.tag, { label: 'View asset', onClick: () => { setToastMsg(''); setToastAction(null); openItem(id); } });
+      if (!rec.consumable) {
+        setScreen('inventory');
+        setView('grid');
+      }
+      toast(`${rec.consumable ? 'Consumable' : 'Asset'} added — ${rec.tag}`, { label: 'View item', onClick: () => { setToastMsg(''); setToastAction(null); openItem(id); } });
     }
   };
   const deleteItem = () => {
@@ -1313,10 +1351,13 @@ export default function App() {
     const resultingQty = mode === 'add' ? qty : 0;
     const base = {
       id, model: model.id, name: `${normalizedColor} ${model.name}`, category: model.cat, consumable: true, rank: model.rank,
-      tag, serial: '', status: 'In stock', location, room, qty: resultingQty, min: 1, condition: 'New', cost: 0, supplier: '', assignedTo: '',
+      tag, serial: '', status: 'In stock', location, room, qty: resultingQty, min: 1, condition: 'New', cost: Number(model.cost || 0), supplier: '', assignedTo: '',
       purchased: iso(today()), warranty: '', unitOfMeasure: 'cartridge', batchNumber: String(draft.batchNumber || '').trim(), stockCode: String(draft.stockCode || '').trim(),
       color: normalizedColor, compatiblePrinterIds: [printer.id], depreciationMethod: 'Straight-line', usefulLifeYears: 1, salvageValue: 0, expectedReplacementDate: '',
-      receivedOn: iso(today()), receivedBy: session.name, receivedCompany: '', receiptSource: 'printer quick workflow', invoiceRequired: false, loanCount: 0, borrower: null, due: null, since: null
+      compatiblePrinterName: printer.name, compatiblePrinterTag: printer.tag, compatiblePrinterModel: printer.modelNumber || printer.name,
+      sourcePrinterId: printer.id, sourcePrinterName: printer.name, sourcePrinterTag: printer.tag,
+      receivedOn: iso(today()), receivedBy: session.name, receivedCompany: '', receiptSource: 'printer quick workflow', invoiceRequired: false, loanCount: 0, borrower: null, due: null, since: null,
+      createdAt, createdBy: session.name, createdByEmail: session.email, updatedAt: createdAt
     };
     if (mode === 'add') {
       const receipt = { id: `CON-RCV-${Date.now()}`, itemId: id, itemName: base.name, itemTag: tag, qty, previousQty: 0, resultingQty, batchNumber: base.batchNumber, notes: String(draft.notes).trim(), printerId: printer.id, printerName: printer.name, receivedAt: createdAt, receivedBy: session.name, receivedByEmail: session.email, retainedUntil };
@@ -1332,7 +1373,7 @@ export default function App() {
     setItems((current) => [base, ...current]);
     logAudit(mode === 'add' ? 'Printer toner record created with stock' : 'Untracked printer toner usage captured', `${base.name} (${tag}) — ${qty} ${base.unitOfMeasure}${mode === 'add' ? ' added' : ' installed'} for ${printer.name} (${printer.tag})`);
     toast(mode === 'add' ? `${base.name} created — ${qty} available` : `${base.name} installation recorded — stock record created`);
-    return '';
+    return { item: base };
   };
 
   const useConsumablesBulk = (lines, draft) => {
@@ -1427,6 +1468,7 @@ export default function App() {
     if (!item) { toast('The selected asset could not be found'); return false; }
     if (item.archived) { toast('Archived assets cannot be checked out'); return false; }
     if (item.consumable) { toast('Consumables do not use the checkout workflow'); return false; }
+    if (!isBorrowingApproved(item, borrowCategoryAccess)) { toast('This asset has not been approved for TSR checkout'); return false; }
     if (item.status !== 'In stock') { toast(`This asset is unavailable while its status is ${item.status}`); return false; }
     if (checkoutTsrs.length === 0) { toast('No active TSR or administrator is available to authorize checkout'); return false; }
     setCoItem(item.id);
@@ -1440,7 +1482,7 @@ export default function App() {
   };
   const closeCheckout = () => { setCoOpen(false); setCoError(''); };
   const previewCheckoutAgreement = () => {
-    const item = items.find((entry) => entry.id === coItem && !entry.archived && !entry.consumable && entry.status === 'In stock');
+    const item = items.find((entry) => entry.id === coItem && !entry.archived && !entry.consumable && entry.status === 'In stock' && isBorrowingApproved(entry, borrowCategoryAccess));
     const period = parseInt(coPeriod, 10);
     if (!item) { setCoError('The selected item is no longer available for checkout.'); return; }
     if (coBorrower.trim().length < 2) { setCoError('Enter a valid borrower name or staff ID.'); return; }
@@ -1460,7 +1502,7 @@ export default function App() {
     if (checkoutFinalizing.current) return;
     checkoutFinalizing.current = true;
     const currentItem = items.find((entry) => entry.id === agreement.item.id);
-    if (!currentItem || currentItem.archived || currentItem.consumable || currentItem.status !== 'In stock') {
+    if (!currentItem || currentItem.archived || currentItem.consumable || currentItem.status !== 'In stock' || !isBorrowingApproved(currentItem, borrowCategoryAccess)) {
       toast('This asset is no longer available for checkout');
       setCheckoutAgreement(null);
       checkoutFinalizing.current = false;
@@ -1524,7 +1566,7 @@ export default function App() {
   // ---- requests ----
   const requestBorrow = () => {
     if (!sel) return;
-    if (sel.archived || sel.status !== 'In stock' || sel.consumable || Number(sel.qty) < 1) {
+    if (sel.archived || sel.status !== 'In stock' || sel.consumable || Number(sel.qty) < 1 || !isBorrowingApproved(sel, borrowCategoryAccess)) {
       toast('This item is not eligible for borrowing');
       return;
     }
@@ -1552,7 +1594,7 @@ export default function App() {
       return;
     }
     const item = items.find((entry) => entry.id === r.itemId);
-    if (!item || item.archived || item.status !== 'In stock' || item.consumable || Number(item.qty) < 1) {
+    if (!item || item.archived || item.status !== 'In stock' || item.consumable || Number(item.qty) < 1 || !isBorrowingApproved(item, borrowCategoryAccess)) {
       toast('Request cannot be approved because the asset is no longer available');
       return;
     }
@@ -1685,6 +1727,7 @@ export default function App() {
     if (action === 'checkout') {
       if (!canLoanNow) return { error: 'Your role cannot check out assets.', item: it };
       if (it.consumable) return { error: 'Consumable stock cannot be checked out as a serialized loan.', item: it };
+      if (!isBorrowingApproved(it, borrowCategoryAccess)) return { error: 'This asset has not been approved for TSR checkout.', item: it };
       if (it.status !== 'In stock') return { error: `${it.name} is ${it.status.toLowerCase()} and cannot be checked out.`, item: it };
       openCheckout(it.id);
       return { item: it, action: 'Checkout form opened', navigation: true };
@@ -1792,7 +1835,7 @@ export default function App() {
       }
     } else {
       const passwordHash = await hashPassword(account.pass);
-      created = { ...account, email, passwordHash, lastSeen: 'Never', tsr: !!account.tsr };
+      created = { ...account, email, passwordHash, lastSeen: 'Never', tsr: !!account.tsr, source: 'local' };
       delete created.pass;
       setCustomAccounts((current) => [...current, created]);
     }
@@ -1801,15 +1844,40 @@ export default function App() {
     return { account: created };
   };
 
-  const sendAccountPasswordReset = async (email) => {
-    if (!isAdmin) return { error: 'Only administrators can send account recovery emails.' };
-    const result = await requestPasswordReset(email);
-    if (!result.error) {
-      const target = accounts.find((account) => account.email === email);
-      logAudit('Password reset requested', `${target?.name || email} (${email})`);
-      toast(`Recovery email requested for ${target?.name || email}`);
+  const resetAccountPassword = async (email, temporaryPassword) => {
+    if (!isAdmin) return { error: 'Only administrators can reset account passwords.' };
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const password = String(temporaryPassword || '');
+    if (password.length < 8) return { error: 'The temporary password must contain at least 8 characters.' };
+    const target = accounts.find((account) => account.email.toLowerCase() === normalizedEmail);
+    if (!target) return { error: 'That account could not be found.' };
+    if (cloudSession) {
+      try {
+        await resetSupabaseAccountPassword(normalizedEmail, password);
+      } catch (error) {
+        return { error: error?.message || 'The Supabase password could not be reset.' };
+      }
+    } else {
+      const passwordHash = await hashPassword(password);
+      setCustomAccounts((current) => {
+        const existing = current.find((entry) => entry.email.toLowerCase() === normalizedEmail);
+        if (existing) return current.map((entry) => entry.email.toLowerCase() === normalizedEmail ? { ...entry, passwordHash, source: 'local' } : entry);
+        return [...current, { ...target, passwordHash, source: 'local' }];
+      });
     }
-    return result;
+    logAudit('Password reset by administrator', `${target.name || normalizedEmail} (${normalizedEmail}) received a new temporary password`);
+    toast(`Temporary password set for ${target.name || normalizedEmail}`);
+    return {};
+  };
+
+  const setBorrowCategoryApproval = (category, allowed) => {
+    if (!isAdmin) return false;
+    const normalizedCategory = String(category || '').trim();
+    if (!normalizedCategory) return false;
+    setBorrowCategoryAccess((current) => ({ ...current, [normalizedCategory]: !!allowed }));
+    logAudit('Borrowing category access updated', `${normalizedCategory}: ${allowed ? 'approved for TSR checkout and staff requests' : 'blocked from borrowing'}`);
+    toast(`${normalizedCategory} ${allowed ? 'added to' : 'removed from'} the borrowing catalogue`);
+    return true;
   };
 
   const updateRoleAccess = (targetRole, targetScreen, enabled) => {
@@ -2215,7 +2283,7 @@ export default function App() {
   }
 
   if (!session) {
-    return <LoginScreen accounts={ACCOUNTS} onLogin={login} onDemoLogin={demoLogin} onRequestPasswordReset={requestPasswordReset} cloudEnabled={supabaseConfigured} />;
+    return <LoginScreen accounts={ACCOUNTS} accountDirectory={accounts} onLogin={login} onDemoLogin={demoLogin} onRequestPasswordReset={requestPasswordReset} cloudEnabled={supabaseConfigured} />;
   }
 
   const screenKey = screen === 'item' ? (sel?.consumable ? 'consumables' : 'inventory') : ['audit', 'access'].includes(screen) ? 'users' : screen;
@@ -2282,7 +2350,7 @@ export default function App() {
               />
             </div>}
             {availableScreens.includes('inventory') && <div className={`workspace-screen${screen === 'inventory' ? ' active' : ''}`} data-app-content-scroll="true" aria-hidden={screen !== 'inventory'}>
-              <Inventory resetKey={inventoryResetKey} items={displayItems.filter((item) => !item.consumable)} filters={filters} setFilters={setFilters} view={view} setView={setView} onOpenItem={openItem} canDelete={isAdmin} onDelete={permanentlyDeleteItem} />
+              <Inventory resetKey={inventoryResetKey} items={(isStaff ? staffVisibleItems : displayItems).filter((item) => !item.consumable)} filters={filters} setFilters={setFilters} view={view} setView={setView} onOpenItem={openItem} canDelete={isAdmin} onDelete={permanentlyDeleteItem} />
             </div>}
             {availableScreens.includes('consumables') && <div className={`workspace-screen${screen === 'consumables' ? ' active' : ''}`} data-app-content-scroll="true" aria-hidden={screen !== 'consumables'}>
               <Consumables items={displayItems} usage={consumableUsage} query={filters.query} canManage={canEdit} scannerAction={consumableScannerAction} onScannerActionHandled={() => setConsumableScannerAction(null)} onUse={useConsumable} onAddStock={addConsumableStock} onCreateTonerMovement={createPrinterTonerMovement} onBulkUse={useConsumablesBulk} onSetCompatibility={setConsumablePrinterCompatibility} onCreateInk={(color, printerId) => { openAdd('printer-toner'); setForm((current) => ({ ...current, color, compatiblePrinterIds: [printerId] })); }} onReorder={openReorder} onOpenItem={openItem} />
@@ -2316,6 +2384,7 @@ export default function App() {
                 lifecycleActions={lifecycleActions.filter((action) => action.itemId === sel.id)}
                 canLoanNow={canLoanNow}
                 isStaff={isStaff}
+                borrowingApproved={isBorrowingApproved(sel, borrowCategoryAccess)}
                 canEdit={canEdit && !sel.archived}
                 canDelete={isAdmin && !sel.archived}
                 onBack={() => goScreen(sel.consumable ? 'consumables' : 'inventory')}
@@ -2351,12 +2420,12 @@ export default function App() {
               <PlacementQueue placements={placements} items={activeItems} query={filters.query} canSetUp={canEdit} onSetUp={openPlacementAsset} onAcknowledge={(id) => acknowledgeWorkflowRecord('placements', id)} />
             </WorkspacePanel>}
             {availableScreens.includes('scan') && <WorkspacePanel name="scan" activeScreen={screen}>
-              <Scan items={activeItems} placements={placements} recentScans={recentScans} reservedBarcodes={reservedBarcodes} canManageLoans={canLoanNow} isActive={screen === 'scan'} onScan={doScan} onSimulate={simulateScan} onOpenItem={openItem} onOpenStocktakes={() => goScreen('stocktakes')} onGenerateBlankLabels={() => setBlankBarcodeOpen(true)} />
+              <Scan items={staffVisibleItems} placements={placements} recentScans={recentScans} reservedBarcodes={reservedBarcodes} canManageLoans={canLoanNow} isActive={screen === 'scan'} onScan={doScan} onSimulate={simulateScan} onOpenItem={openItem} onOpenStocktakes={() => goScreen('stocktakes')} onGenerateBlankLabels={() => setBlankBarcodeOpen(true)} />
             </WorkspacePanel>}
             {availableScreens.includes('reports') && <WorkspacePanel name="reports" activeScreen={screen}>
               <Reports items={items} history={history} tickets={repairTickets} orders={orders} procurementRecords={procurementRecords} />
             </WorkspacePanel>}
-            {availableScreens.includes('settings') && <WorkspacePanel name="settings" activeScreen={screen}><Settings isAdmin={isAdmin} accounts={accounts} userState={userState} navConfig={navOverrides} auditEntries={auditLog} importRuns={importRuns} procurementRecords={procurementRecords} vendors={approvedVendors} approvalContacts={approvalContacts} items={items} orders={orders} accountStorage={cloudSession ? 'Supabase secured' : 'Demo data stored locally'} onImport={importCsvData} onSaveVendor={saveApprovedVendor} onToggleVendor={toggleApprovedVendor} onSaveApprovalContact={saveApprovalContact} onToggleApprovalContact={toggleApprovalContact} onAccessChange={updateRoleAccess} onToggle={toggleUser} onUpdateProfile={updateUserProfile} onCreateAccount={createUserAccount} onResetPassword={cloudSession ? sendAccountPasswordReset : null} /></WorkspacePanel>}
+            {availableScreens.includes('settings') && <WorkspacePanel name="settings" activeScreen={screen}><Settings isAdmin={isAdmin} accounts={accounts} userState={userState} navConfig={navOverrides} auditEntries={auditLog} importRuns={importRuns} procurementRecords={procurementRecords} vendors={approvedVendors} approvalContacts={approvalContacts} items={items} orders={orders} borrowCategoryAccess={borrowCategoryAccess} accountStorage={cloudSession ? 'Supabase secured' : 'Demo data stored locally'} onImport={importCsvData} onSaveVendor={saveApprovedVendor} onToggleVendor={toggleApprovedVendor} onSaveApprovalContact={saveApprovalContact} onToggleApprovalContact={toggleApprovalContact} onBorrowCategoryChange={setBorrowCategoryApproval} onAccessChange={updateRoleAccess} onToggle={toggleUser} onUpdateProfile={updateUserProfile} onCreateAccount={createUserAccount} onResetPassword={resetAccountPassword} /></WorkspacePanel>}
             </>}
           </div>
         </div>
@@ -2369,6 +2438,7 @@ export default function App() {
         item={globallyScannedItem}
         reserved={globallyScannedReservation}
         canManageLoans={canLoanNow}
+        borrowingApproved={isBorrowingApproved(globallyScannedItem, borrowCategoryAccess)}
         canEdit={canEdit}
         onClose={() => setDetectedScan(null)}
         onView={() => { const id = globallyScannedItem?.id; setDetectedScan(null); if (id) openItem(id); }}
@@ -2381,7 +2451,7 @@ export default function App() {
         onScannerConsole={() => { setDetectedScan(null); goScreen('scan'); }}
       />
       {blankBarcodeOpen && <BlankBarcodeModal open={blankBarcodeOpen} reserved={reservedBarcodes.filter((entry) => entry.status !== 'Voided')} onGenerate={generateBlankBarcodes} onDelete={deleteReservedBarcode} onClear={clearReservedBarcodes} onClose={() => setBlankBarcodeOpen(false)} />}
-      {formOpen && <AssetFormModal open={formOpen} mode={formMode} form={form} error={formError} intakeProgress={placementProgress} isAdmin={isAdmin} consumablesOnly={screen === 'consumables'} printers={items.filter((item) => !item.archived && !item.consumable && item.status !== 'Retired' && (item.category === 'Printing' || /printer|copier|plotter/i.test(`${item.name} ${item.model}`))).sort((a, b) => a.name.localeCompare(b.name) || a.tag.localeCompare(b.tag))} onChange={onFormChange} onSave={saveForm} onDelete={deleteItem} onRequestRetire={requestRetirement} onClose={closeForm} />}
+      {formOpen && <AssetFormModal open={formOpen} mode={formMode} form={form} error={formError} intakeProgress={placementProgress} isAdmin={isAdmin} borrowCategoryAccess={borrowCategoryAccess} consumablesOnly={screen === 'consumables'} printers={items.filter((item) => !item.archived && !item.consumable && item.status !== 'Retired' && (item.category === 'Printing' || /printer|copier|plotter/i.test(`${item.name} ${item.model}`))).sort((a, b) => a.name.localeCompare(b.name) || a.tag.localeCompare(b.tag))} onChange={onFormChange} onSave={saveForm} onDelete={deleteItem} onRequestRetire={requestRetirement} onClose={closeForm} />}
       {orderOpen && <ReorderModal
         open={orderOpen}
         directOrder={isAdmin}

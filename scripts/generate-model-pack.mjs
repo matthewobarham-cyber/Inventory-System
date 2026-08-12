@@ -32,12 +32,33 @@ const screen = new THREE.MeshStandardMaterial({ color: 0x173b59, emissive: 0x071
 const green = new THREE.MeshStandardMaterial({ color: 0x276b4a, roughness: .62, metalness: .15 });
 const paper = new THREE.MeshStandardMaterial({ color: 0xf1f0e9, roughness: .9 });
 const blueGlass = new THREE.MeshStandardMaterial({ color: 0x7fb4d2, transparent: true, opacity: .72, roughness: .18, metalness: .08 });
+const tabletFrame = new THREE.MeshStandardMaterial({ color: 0x202a34, roughness: .22, metalness: .76 });
+const tabletGlass = new THREE.MeshPhysicalMaterial({ color: 0x102d47, emissive: 0x061828, emissiveIntensity: .48, roughness: .12, metalness: .08, clearcoat: 1, clearcoatRoughness: .08 });
+const toolCase = new THREE.MeshStandardMaterial({ color: 0x173c5a, roughness: .38, metalness: .42 });
+const toolFoam = new THREE.MeshStandardMaterial({ color: 0x111820, roughness: .92, metalness: 0 });
+const toolAccent = new THREE.MeshStandardMaterial({ color: 0xd28b24, roughness: .38, metalness: .22 });
 
 function material(index, offset = 0) {
   return new THREE.MeshStandardMaterial({ color: palette[(index + offset) % palette.length], roughness: .52, metalness: .25 });
 }
 function box(group, size, position, mat = dark, rotation = null) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), mat);
+  mesh.position.set(...position);
+  if (rotation) mesh.rotation.set(...rotation);
+  group.add(mesh);
+  return mesh;
+}
+function roundedBox(group, width, height, depth, radius, position, mat, rotation = null) {
+  const shape = new THREE.Shape();
+  const left = -width / 2; const right = width / 2; const bottom = -height / 2; const top = height / 2;
+  shape.moveTo(left + radius, bottom);
+  shape.lineTo(right - radius, bottom); shape.quadraticCurveTo(right, bottom, right, bottom + radius);
+  shape.lineTo(right, top - radius); shape.quadraticCurveTo(right, top, right - radius, top);
+  shape.lineTo(left + radius, top); shape.quadraticCurveTo(left, top, left, top - radius);
+  shape.lineTo(left, bottom + radius); shape.quadraticCurveTo(left, bottom, left + radius, bottom);
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSegments: 3, steps: 1, bevelSize: Math.min(radius * .28, depth * .18), bevelThickness: Math.min(radius * .22, depth * .14), curveSegments: 8 });
+  geometry.translate(0, 0, -depth / 2);
+  const mesh = new THREE.Mesh(geometry, mat);
   mesh.position.set(...position);
   if (rotation) mesh.rotation.set(...rotation);
   group.add(mesh);
@@ -89,6 +110,27 @@ function buildModel(entry, index) {
   const variant = (index % 5) * .04;
 
   switch (entry.shape) {
+    case 'tablet': {
+      // A slim, handheld landscape tablet with a machined frame, glass display,
+      // camera system and hardware controls. It intentionally has no monitor stand.
+      roundedBox(group, 1.82, 1.12, .105, .105, [0, .65, 0], tabletFrame);
+      roundedBox(group, 1.68, .97, .018, .065, [0, .65, .064], tabletGlass);
+      // A restrained dashboard composition gives the display depth without relying on textures.
+      roundedBox(group, .52, .64, .009, .035, [-.5, .65, .078], new THREE.MeshBasicMaterial({ color: 0x16557b }));
+      roundedBox(group, .88, .17, .009, .025, [.31, .88, .078], new THREE.MeshBasicMaterial({ color: 0x2a6689 }));
+      roundedBox(group, .88, .36, .009, .025, [.31, .57, .078], new THREE.MeshBasicMaterial({ color: 0x0d3a59 }));
+      for (let column = 0; column < 3; column += 1) roundedBox(group, .2, .07, .01, .018, [.08 + column * .28, .37, .081], new THREE.MeshBasicMaterial({ color: column === 1 ? 0x69b4d9 : 0x8fc7df }));
+      cylinder(group, .028, .012, [0, 1.158, .067], black, [Math.PI / 2, 0, 0], 24);
+      cylinder(group, .012, .014, [0, 1.158, .075], new THREE.MeshBasicMaterial({ color: 0x5b91ac }), [Math.PI / 2, 0, 0], 20);
+      roundedBox(group, .24, .018, .008, .009, [0, .19, .079], silver);
+      // Rear camera island and side controls remain visible as the model rotates.
+      roundedBox(group, .25, .13, .025, .04, [-.72, 1.04, -.065], black);
+      cylinder(group, .046, .018, [-.77, 1.04, -.084], tabletGlass, [Math.PI / 2, 0, 0], 24);
+      cylinder(group, .022, .018, [-.67, 1.04, -.084], new THREE.MeshBasicMaterial({ color: 0xd9e3e8 }), [Math.PI / 2, 0, 0], 20);
+      roundedBox(group, .28, .025, .022, .01, [.48, 1.22, 0], silver);
+      roundedBox(group, .14, .025, .022, .01, [.76, 1.22, 0], silver);
+      break;
+    }
     case 'display':
       box(group, [1.75 + variant, 1.05, .12], [0, 1.15, 0], dark);
       box(group, [1.56 + variant, .85, .035], [0, 1.15, .078], screen);
@@ -237,11 +279,44 @@ function buildModel(entry, index) {
       rod(group, [-.18, .1, 0], [-.45, -.35, .12], .025, black);
       rod(group, [.18, .1, 0], [.45, -.35, -.12], .025, black);
       break;
-    case 'toolkit':
-      box(group, [1.55, .62, .9], [0, .36, 0], accent);
-      torus(group, .32, .055, [0, .78, 0], dark, [Math.PI / 2, 0, 0], Math.PI);
-      box(group, [.1, .18, .06], [0, .4, .48], silver);
+    case 'toolkit': {
+      // Open professional technician case: reinforced shell, fitted foam,
+      // precision drivers, bits, pliers, latches and a proper carry handle.
+      roundedBox(group, 1.86, .48, .96, .09, [0, .32, .12], toolCase);
+      roundedBox(group, 1.68, .30, .77, .055, [0, .54, .11], toolFoam);
+      const lid = new THREE.Group();
+      roundedBox(lid, 1.86, .78, .13, .09, [0, .37, 0], toolCase);
+      roundedBox(lid, 1.62, .57, .025, .055, [0, .37, .074], toolFoam);
+      lid.position.set(0, .58, -.37);
+      lid.rotation.x = -.28;
+      group.add(lid);
+      // Organized precision screwdriver row.
+      const handleColors = [0xd28b24, 0x2e79a0, 0xd28b24, 0x2e79a0, 0xd28b24];
+      for (let tool = 0; tool < 5; tool += 1) {
+        const x = -.61 + tool * .305;
+        cylinder(group, .07, .28, [x, .79, .15], new THREE.MeshStandardMaterial({ color: handleColors[tool], roughness: .38, metalness: .16 }), [Math.PI / 2, 0, 0], 18);
+        cylinder(group, .018, .31, [x, .79, .43], silver, [Math.PI / 2, 0, 0], 12);
+        for (let grip = -1; grip <= 1; grip += 1) torus(group, .071, .008, [x, .79, .12 + grip * .055], dark, [Math.PI / 2, 0, 0]);
+      }
+      // Bit rail and compact pliers make the contents readable at card scale.
+      roundedBox(group, .86, .12, .16, .035, [-.39, .73, -.18], dark);
+      for (let bit = 0; bit < 6; bit += 1) cylinder(group, .026, .12, [-.71 + bit * .13, .83, -.18], silver, null, 10);
+      rod(group, [.28, .72, -.17], [.62, .92, -.08], .04, toolAccent);
+      rod(group, [.34, .72, -.23], [.66, .91, -.35], .04, toolAccent);
+      rod(group, [.62, .92, -.08], [.76, 1.08, -.05], .025, silver);
+      rod(group, [.66, .91, -.35], [.81, 1.05, -.40], .025, silver);
+      cylinder(group, .055, .05, [.63, .92, -.21], silver, [Math.PI / 2, 0, 0], 16);
+      // Front hardware, shell ribs and a stable U-shaped handle.
+      for (const x of [-.52, .52]) {
+        roundedBox(group, .22, .15, .07, .025, [x, .38, .625], silver);
+        box(group, [.06, .42, .03], [x, .32, -.375], dark);
+      }
+      rod(group, [-.35, .28, .64], [-.35, -.02, .68], .045, dark);
+      rod(group, [.35, .28, .64], [.35, -.02, .68], .045, dark);
+      rod(group, [-.35, -.02, .68], [.35, -.02, .68], .045, dark);
+      roundedBox(group, .36, .12, .025, .025, [0, .38, .637], toolAccent);
       break;
+    }
     case 'office':
       box(group, [1.5, .55, .86], [0, .32, 0], accent);
       box(group, [1.22, .07, .6], [0, .63, -.02], dark);
@@ -372,8 +447,8 @@ function previewArtwork(entry) {
   const common = 'fill="url(#g)" stroke="#17222c" stroke-width="5" stroke-linejoin="round"';
   const screenFill = 'fill="#163a55" stroke="#0c1d29" stroke-width="4"';
   switch (entry.shape) {
+    case 'tablet': return `<rect x="69" y="73" width="282" height="174" rx="22" fill="#202b34" stroke="#111a21" stroke-width="7"/><rect x="83" y="87" width="254" height="146" rx="13" fill="#102f49" stroke="#31546d" stroke-width="3"/><rect x="101" y="105" width="77" height="108" rx="8" fill="#176086"/><rect x="194" y="105" width="121" height="33" rx="7" fill="#2f7195"/><rect x="194" y="151" width="121" height="62" rx="7" fill="#0b3b59"/><circle cx="210" cy="81" r="4" fill="#70a8c2"/><rect x="191" y="222" width="38" height="4" rx="2" fill="#aab8c0"/>`;
     case 'display': {
-      if (entry.id === 'tablet') return `<rect x="140" y="64" width="140" height="176" rx="16" ${common}/><rect x="153" y="80" width="114" height="138" rx="6" ${screenFill}/><circle cx="210" cy="229" r="5" fill="#9ca8b2"/>`;
       if (entry.id === 'portable-monitor') return `<rect x="94" y="82" width="232" height="144" rx="10" ${common}/><rect x="108" y="96" width="204" height="112" rx="3" ${screenFill}/><path d="M146 229h128l22 23H124z" fill="#596875" stroke="#17222c" stroke-width="4"/>`;
       if (entry.id === 'smart-board' || entry.id === 'interactive-panel') return `<rect x="69" y="54" width="282" height="184" rx="8" ${common}/><rect x="84" y="70" width="252" height="146" rx="3" fill="#eaf0f4" stroke="#17222c" stroke-width="4"/><path d="M115 178l48-46 42 31 57-69 44 42" fill="none" stroke="#2a79b8" stroke-width="8"/><circle cx="324" cy="226" r="5" fill="#58bd82"/>`;
       return `<rect x="72" y="68" width="276" height="166" rx="9" ${common}/><rect x="88" y="84" width="244" height="130" rx="3" ${screenFill}/><path d="M176 236h68l12 20h-92z" fill="#66727c" stroke="#17222c" stroke-width="4"/>`;
@@ -411,7 +486,7 @@ function previewArtwork(entry) {
     case 'fan': return `<circle cx="210" cy="154" r="111" fill="#202c35" stroke="#17222c" stroke-width="7"/><circle cx="210" cy="154" r="25" fill="url(#g)"/>${Array.from({ length: 7 }, (_, i) => `<ellipse cx="210" cy="93" rx="24" ry="57" fill="url(#g)" transform="rotate(${i * 51.43} 210 154)" opacity=".9"/>`).join('')}<circle cx="210" cy="154" r="17" fill="#17222c"/>`;
     case 'board': return `<rect x="73" y="55" width="274" height="190" rx="8" fill="#35724f" stroke="#17222c" stroke-width="6"/><rect x="157" y="96" width="104" height="82" rx="7" fill="#17222c"/><path d="M92 91h48v24H92zM282 81h43v74h-43zM97 191h78v34H97z" fill="#aab5bc"/>${[181,198,215,232].map((x) => `<rect x="${x}" y="190" width="11" height="40" fill="#d0ad52"/>`).join('')}`;
     case 'tool': return `<rect x="153" y="48" width="114" height="174" rx="18" ${common}/><rect x="171" y="75" width="78" height="59" rx="7" ${screenFill}/><circle cx="210" cy="177" r="29" fill="#17222c" stroke="#83919a" stroke-width="5"/><path d="M176 220l-52 38M244 220l52 38" stroke="#17222c" stroke-width="10" stroke-linecap="round"/>`;
-    case 'toolkit': return `<rect x="76" y="101" width="268" height="142" rx="14" ${common}/><path d="M157 102V75q0-22 22-22h62q22 0 22 22v27" fill="none" stroke="#263843" stroke-width="12"/><rect x="185" y="157" width="50" height="29" rx="5" fill="#aab5bc"/><path d="M76 142h268" stroke="#17222c" stroke-width="6"/>`;
+    case 'toolkit': return `<path d="M84 116h252l-21-72H105z" fill="#173c5a" stroke="#17222c" stroke-width="6"/><path d="M111 101h198l-12-41H123z" fill="#111820" stroke="#47687c" stroke-width="4"/>${[143,176,209,242,275].map((x,i) => `<rect x="${x}" y="66" width="13" height="32" rx="6" fill="${i % 2 ? '#2e79a0' : '#d28b24'}"/><path d="M${x + 6} 66V55" stroke="#aab5bc" stroke-width="4"/>`).join('')}<rect x="72" y="112" width="276" height="120" rx="16" fill="#173c5a" stroke="#17222c" stroke-width="7"/><rect x="90" y="126" width="240" height="77" rx="10" fill="#111820"/>${[123,157,191,225,259].map((x,i) => `<rect x="${x}" y="140" width="15" height="46" rx="7" fill="${i % 2 ? '#2e79a0' : '#d28b24'}"/><path d="M${x + 7} 140V127" stroke="#aab5bc" stroke-width="4"/>`).join('')}<rect x="111" y="215" width="38" height="19" rx="4" fill="#aab5bc"/><rect x="271" y="215" width="38" height="19" rx="4" fill="#aab5bc"/><path d="M164 232v18h92v-18" fill="none" stroke="#263843" stroke-width="11" stroke-linecap="round"/>`;
     case 'office': return `<rect x="84" y="104" width="252" height="130" rx="18" ${common}/><path d="M118 91h184v79H118z" fill="#f6f5ef" stroke="#17222c" stroke-width="5"/><rect x="126" y="144" width="168" height="59" rx="7" fill="#17222c"/><path d="M155 179h110v76H155z" fill="#f8f7f2" stroke="#929ea6" stroke-width="4"/>`;
     case 'stand': return `<path d="M104 205h212l-34 39H138z" fill="#aeb7bd" stroke="#17222c" stroke-width="6"/><path d="M143 205l20-133M277 205L257 72M163 72h94" fill="none" stroke="#263945" stroke-width="12" stroke-linecap="round"/>`;
     case 'roll': return `<ellipse cx="210" cy="99" rx="83" ry="51" fill="#f8f7f1" stroke="#17222c" stroke-width="6"/><path d="M127 99v106c0 28 166 28 166 0V99" fill="#eeede7" stroke="#17222c" stroke-width="6"/><ellipse cx="210" cy="99" rx="30" ry="19" fill="#293a44"/><path d="M253 214h86v37h-122" fill="#faf9f4" stroke="#9aa4aa" stroke-width="4"/>`;
@@ -444,9 +519,12 @@ function previewSvg(entry, index) {
   </svg>`;
 }
 
+const requestedModels = new Set(process.argv.slice(2));
 const exporter = new GLTFExporter();
+let generatedCount = 0;
 for (let index = 0; index < GENERATED_MODELS.length; index += 1) {
   const entry = GENERATED_MODELS[index];
+  if (requestedModels.size && !requestedModels.has(entry.id)) continue;
   const scene = new THREE.Scene();
   scene.name = `${entry.name} asset model`;
   scene.add(buildModel(entry, index));
@@ -454,6 +532,7 @@ for (let index = 0; index < GENERATED_MODELS.length; index += 1) {
   const data = await exporter.parseAsync(scene, { binary: true, onlyVisible: true, truncateDrawRange: true });
   await fs.writeFile(path.join(modelsDir, `${entry.id}.glb`), Buffer.from(data));
   await fs.writeFile(path.join(previewsDir, `${entry.id}.svg`), previewSvg(entry, index), 'utf8');
+  generatedCount += 1;
 }
 
-console.log(`Generated ${GENERATED_MODELS.length} GLB models and ${GENERATED_MODELS.length} SVG previews in ${root}`);
+console.log(`Generated ${generatedCount} GLB models and ${generatedCount} SVG previews in ${root}`);

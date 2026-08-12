@@ -74,7 +74,7 @@ function SearchableEquipmentSelect({ value, consumablesOnly, onChange }) {
   </div>;
 }
 
-export default function AssetFormModal({ open, mode, form, error, intakeProgress, isAdmin, consumablesOnly = false, printers = [], onChange, onSave, onDelete, onRequestRetire, onClose }) {
+export default function AssetFormModal({ open, mode, form, error, intakeProgress, isAdmin, borrowCategoryAccess = {}, consumablesOnly = false, printers = [], onChange, onSave, onDelete, onRequestRetire, onClose }) {
   if (!open) return null;
 
   const set = (key) => (e) => onChange(key, e.target.value);
@@ -149,6 +149,15 @@ export default function AssetFormModal({ open, mode, form, error, intakeProgress
             <span style={captionStyle}>Assignment (optional)</span>
             <input value={form.assignedTo || ''} onChange={set('assignedTo')} placeholder="Person, department, lab, or purpose" style={fieldStyle} />
           </label>
+          {isAdmin && !consumable && <label style={{ ...labelStyle, gridColumn: 'span 2' }}>
+            <span style={captionStyle}>Borrowing permission</span>
+            <select value={form.borrowEligibility || 'inherit'} onChange={set('borrowEligibility')} style={{ ...fieldStyle, cursor: 'pointer' }}>
+              <option value="inherit">Use category rule ({borrowCategoryAccess[selectedModel?.cat] === true ? 'allowed' : 'blocked'})</option>
+              <option value="allowed">Allow this asset</option>
+              <option value="blocked">Block this asset</option>
+            </select>
+            <span style={{ fontSize: 10.5, color: '#7b8794' }}>Item rules override the {selectedModel?.cat || 'equipment'} category setting. Blocked assets cannot be checked out by a TSR and are hidden from staff.</span>
+          </label>}
           <label style={labelStyle}>
             <span style={captionStyle}>Quantity per record</span>
             <input type="number" min={mode === 'edit' ? 0 : 1} value={consumable ? (form.qty ?? 1) : 1} disabled={!consumable} onChange={set('qty')} style={{ ...fieldStyle, color: consumable ? '#14181d' : '#7b8794', cursor: consumable ? 'text' : 'not-allowed' }} />

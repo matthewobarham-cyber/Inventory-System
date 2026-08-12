@@ -3,6 +3,7 @@ import { MODEL_BY, thumbStyle } from '../data.js';
 import { BarcodeGraphic } from './BarcodeLabelModal.jsx';
 
 const MAX_LABELS = 14;
+const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const normalizeSearch = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const equipmentTypeFor = (item) => MODEL_BY[item.model]?.name || item.importedType || item.category || 'Other equipment';
 const searchFieldsFor = (item) => {
@@ -12,9 +13,18 @@ const searchFieldsFor = (item) => {
     all: normalizeSearch(`${item.name} ${item.tag} ${item.serial || ''} ${item.location || ''} ${item.room || ''} ${model?.name || ''} ${model?.cat || ''} ${item.model || ''} ${item.category || ''} ${item.importedType || ''} ${item.modelNumber || ''}`)
   };
 };
+const createdTimeFor = (item) => {
+  const explicit = new Date(item.createdAt || '').getTime();
+  if (Number.isFinite(explicit)) return explicit;
+  const idTime = /^itm(\d{12,})$/i.exec(String(item.id || ''));
+  return idTime ? Number(idTime[1]) : 0;
+};
+const recentDateLabel = (time) => new Date(time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
 export default function ScannerLabelStudio({ items, placements = [] }) {
   const [query, setQuery] = useState('');
+  const [recentQuery, setRecentQuery] = useState('');
+  const [sourceTab, setSourceTab] = useState('search');
   const [selectedIds, setSelectedIds] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [printActive, setPrintActive] = useState(false);
@@ -23,6 +33,19 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
 
   const available = useMemo(() => items.filter((item) => item.tag && !item.archived), [items]);
   const selected = useMemo(() => selectedIds.map((id) => available.find((item) => item.id === id)).filter(Boolean), [available, selectedIds]);
+  const recentAssets = useMemo(() => available
+    .map((item) => ({ item, createdAt: createdTimeFor(item) }))
+    .filter((entry) => entry.createdAt > 0 && entry.createdAt >= Date.now() - RECENT_WINDOW_MS)
+    .sort((left, right) => right.createdAt - left.createdAt), [available]);
+  const filteredRecentAssets = useMemo(() => {
+    const term = normalizeSearch(recentQuery);
+    if (!term) return recentAssets;
+    const tokens = term.split(' ').filter(Boolean).map((token) => token.length > 3 && token.endsWith('s') ? token.slice(0, -1) : token);
+    return recentAssets.filter(({ item }) => {
+      const fields = searchFieldsFor(item);
+      return tokens.every((token) => fields.all.includes(token));
+    });
+  }, [recentAssets, recentQuery]);
   const placementGroups = useMemo(() => placements
     .map((placement) => ({
       placement,
@@ -70,6 +93,7 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
       return next;
     });
   };
+  const addRecentAssets = () => addPlacementAssets(filteredRecentAssets.map((entry) => entry.item).filter((item) => !selectedIds.includes(item.id)));
   const remove = (id) => setSelectedIds((current) => current.filter((entry) => entry !== id));
   const openPrintPreview = () => {
     if (!selected.length || printActive) return;
@@ -120,8 +144,14 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
       <div><b>{selected.length}</b><span>of {MAX_LABELS}<small>labels loaded</small></span></div>
     </header>
 
+    <nav className="scanner-label-source-tabs" aria-label="Barcode label sources">
+      <button type="button" data-active={sourceTab === 'search'} onClick={() => setSourceTab('search')}><span>⌕</span><b>Inventory search</b><small>Find any tagged asset</small></button>
+      <button type="button" data-active={sourceTab === 'recent'} onClick={() => setSourceTab('recent')}><span>◷</span><b>Recents</b><small>{recentAssets.length} added in 30 days</small></button>
+      <button type="button" data-active={sourceTab === 'assignment'} onClick={() => setSourceTab('assignment')}><span>＋</span><b>Assignment intake</b><small>{placementGroups.reduce((count, group) => count + group.assets.length, 0)} order assets</small></button>
+    </nav>
+
     <div className="scanner-label-studio-grid">
-      <div className="scanner-label-search-panel">
+      {sourceTab === 'search' && <div className="scanner-label-search-panel">
         <label htmlFor="scanner-label-search">Add an inventory item</label>
         <div className="scanner-label-search-box">
           <span>⌕</span><input id="scanner-label-search" value={query} onFocus={() => setSearchOpen(true)} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); }} onKeyDown={(event) => { if (event.key === 'Enter' && matches[0]) { event.preventDefault(); add(matches[0]); } }} placeholder="Search item type, category, name, tag or location" autoComplete="off" />
@@ -133,7 +163,35 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
           {!matches.length && <div>{available.length ? 'No additional assets match this search.' : 'No tagged inventory is available. Import or add assets first.'}</div>}
         </div>}
         <div className="scanner-label-format-note"><b>Avery 5162</b><span>US Letter · 2 columns × 7 rows</span><small>Print at 100% / Actual size. Do not use Fit to page.</small></div>
-      </div>
+      </div>}
+
+      {sourceTab === 'recent' && <div className="scanner-label-search-panel scanner-label-recents-panel">
+        <header><span><small>LAST 30 DAYS</small><strong>Ready-to-print asset tags</strong></span>{filteredRecentAssets.some(({ item }) => !selectedIds.includes(item.id)) && <button type="button" disabled={selected.length >= MAX_LABELS} onClick={addRecentAssets}>Load newest</button>}</header>
+        <p>Search every tagged asset created in the last 30 days, then add individual records or load the newest matches into the sheet.</p>
+        <div className="scanner-label-search-box scanner-label-recent-search">
+          <span>⌕</span><input value={recentQuery} onChange={(event) => setRecentQuery(event.target.value)} placeholder="Search recent name, tag, type, serial or location" autoComplete="off" />
+          {recentQuery && <button type="button" onClick={() => setRecentQuery('')} aria-label="Clear recent asset search">×</button>}
+        </div>
+        <div className="scanner-label-recent-list">
+          {filteredRecentAssets.map(({ item, createdAt }) => { const loaded = selectedIds.includes(item.id); return <button key={item.id} type="button" data-loaded={loaded ? 'true' : 'false'} disabled={loaded || selected.length >= MAX_LABELS} onClick={() => add(item)}>
+            <span style={thumbStyle(item.model, 38, 8)} /><span><strong>{item.name}</strong><code>{item.tag}</code><small>{recentDateLabel(createdAt)}{item.createdBy ? ` · ${item.createdBy}` : ''}</small></span><b>{loaded ? 'Loaded ✓' : selected.length >= MAX_LABELS ? 'Full' : 'Add +'}</b>
+          </button>; })}
+          {!filteredRecentAssets.length && <div className="scanner-label-source-empty"><span>◷</span><strong>{recentAssets.length ? 'No recent assets match this search' : 'No assets added in the last 30 days'}</strong><small>{recentAssets.length ? 'Try a name, tag, equipment type, serial number, or location.' : 'Newly created tagged assets will appear here automatically.'}</small></div>}
+        </div>
+      </div>}
+
+      {sourceTab === 'assignment' && <div className="scanner-label-search-panel scanner-label-assignment-panel">
+        <header><span><small>ASSIGNMENT INTAKE</small><strong>Newly registered order assets</strong></span></header>
+        <p>Load labels from assets registered through Pending Orders and Assignment.</p>
+        <div className="scanner-label-assignment-list">
+          {placementGroups.map(({ placement, assets }) => { const unloaded = assets.filter((item) => !selectedIds.includes(item.id)); return <article key={placement.id}>
+            <header><span style={thumbStyle(placement.model, 38, 8)} /><span><strong>{placement.name}</strong><code>{placement.purchaseOrderNumber || placement.requisitionNumber || placement.reference || placement.id}</code></span></header>
+            <div>{assets.map((item) => { const loaded = selectedIds.includes(item.id); return <button type="button" key={item.id} disabled={loaded || selected.length >= MAX_LABELS} onClick={() => addPlacementAssets([item])}><span><strong>{item.name}</strong><code>{item.tag}</code></span><b>{loaded ? 'Loaded ✓' : 'Add +'}</b></button>; })}</div>
+            <footer><small>{assets.length} asset{assets.length === 1 ? '' : 's'}</small><button type="button" disabled={!unloaded.length || selected.length >= MAX_LABELS} onClick={() => addPlacementAssets(unloaded)}>Load group</button></footer>
+          </article>; })}
+          {!placementGroups.length && <div className="scanner-label-source-empty"><span>＋</span><strong>No Assignment assets ready</strong><small>Registered order assets will appear here automatically.</small></div>}
+        </div>
+      </div>}
 
       <div className="scanner-label-queue">
         <header><span><small>PRINT ORDER</small><strong>Selected labels</strong></span>{selected.length > 0 && <button type="button" onClick={() => setSelectedIds([])}>Clear all</button>}</header>
@@ -158,7 +216,7 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
       </div>
     </div>
 
-    <section className="scanner-placement-labels">
+    {false && <section className="scanner-placement-labels">
       <header>
         <span><small>ASSIGNMENT INTAKE</small><strong>Newly registered order assets</strong><p>Load barcodes directly from assets created through Pending Orders and Assignment—no catalogue search required.</p></span>
         <b>{placementGroups.reduce((count, group) => count + group.assets.length, 0)} ready</b>
@@ -183,6 +241,6 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
         })}
         {!placementGroups.length && <div className="scanner-placement-empty"><span>▥</span><strong>No Assignment assets are ready yet</strong><p>Once received equipment is registered in Assignment, its generated asset tags will appear here automatically.</p></div>}
       </div>
-    </section>
+    </section>}
   </section>;
 }

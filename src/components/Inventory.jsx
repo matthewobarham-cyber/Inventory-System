@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MODELS, glbUrl, money, thumbStyle, statusTagStyle, CARD_MIN_WIDTH, effStatus } from '../data.js';
 import BulkBarcodeModal from './BulkBarcodeModal.jsx';
 import SortableHeader, { nextSort, sortRows } from './SortableHeader.jsx';
@@ -6,17 +7,46 @@ import { Inv3D } from '../three-engine.js';
 import StocktakeFlag from './StocktakeFlag.jsx';
 
 const STATUS_OPTIONS = ['All statuses', 'In stock', 'On loan', 'Low stock', 'Maintenance', 'Retired'];
-const RECENT_INVENTORY_DAYS = 14;
+const RECENT_INVENTORY_DAYS = 7;
 const ALL_BUILDINGS = '__all_buildings__';
+const INVENTORY_WEB_POSITIONS_KEY = 'msbm.inventoryWebNodePositions.v1';
+
+function loadInventoryWebPositions() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(INVENTORY_WEB_POSITIONS_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 function recentInventoryDate(item) {
-  const rawDate = item.receivedAt || item.receivedOn;
-  if (!rawDate) return null;
-  const addedAt = new Date(/^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? `${rawDate}T00:00:00` : rawDate);
-  if (Number.isNaN(addedAt.getTime())) return null;
-  const age = Date.now() - addedAt.getTime();
+  const addedTimestamp = inventoryAddedTimestamp(item, false);
+  if (!addedTimestamp) return null;
+  const age = Date.now() - addedTimestamp;
   const recentWindow = RECENT_INVENTORY_DAYS * 24 * 60 * 60 * 1000;
-  return age >= 0 && age <= recentWindow ? addedAt : null;
+  return age >= 0 && age <= recentWindow ? new Date(addedTimestamp) : null;
+}
+
+function inventoryAddedTimestamp(item, includePurchaseDate = true) {
+  const exactDate = item.createdAt || item.receivedAt;
+  if (exactDate) {
+    const timestamp = Date.parse(exactDate);
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+
+  // Imported and order-created records use timestamp-based IDs even when older
+  // data did not persist a dedicated createdAt field.
+  const idTimestamp = String(item.id || '').match(/\d{13}/)?.[0];
+  if (idTimestamp) {
+    const timestamp = Number(idTimestamp);
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+
+  const fallbackDate = item.receivedOn || (includePurchaseDate ? item.purchased : '');
+  if (!fallbackDate) return 0;
+  const timestamp = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(fallbackDate) ? `${fallbackDate}T00:00:00` : fallbackDate);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function recentDateLabel(date) {
@@ -33,7 +63,19 @@ function TypePreview({ model }) {
 
 function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
   const [category, setCategory] = useState('');
+  const [nodePositions, setNodePositions] = useState({});
+  const [draggingNode, setDraggingNode] = useState('');
+  const canvasRef = useRef(null);
+  const nodePositionsRef = useRef(nodePositions);
+  const dragRef = useRef(null);
+  const suppressClickRef = useRef('');
   useEffect(() => setCategory(''), [groupBy]);
+  useEffect(() => {
+    const loaded = loadInventoryWebPositions();
+    nodePositionsRef.current = loaded;
+    setNodePositions(loaded);
+  }, []);
+  useEffect(() => { nodePositionsRef.current = nodePositions; }, [nodePositions]);
 
   const categoryOptions = useMemo(() => {
     if (groupBy !== 'type') return [];
@@ -53,11 +95,51 @@ function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
       : categoryOptions;
   const webWidth = groupBy === 'type' ? 1200 : 1000;
   const webHeight = groupBy === 'type' ? 680 : 500;
-  const positions = webPositions(visibleOptions.length, webWidth, webHeight);
+  const positionScope = `${groupBy}:${category || 'overview'}`;
+  const defaultPositions = webPositions(visibleOptions.length, webWidth, webHeight);
+  const positions = defaultPositions.map((position, index) => {
+    const saved = nodePositions[positionScope]?.[visibleOptions[index]?.value];
+    return saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) ? { x: saved.x * webWidth, y: saved.y * webHeight } : position;
+  });
   const centerTitle = groupBy === 'location' ? 'Inventory locations' : category || 'Equipment catalogue';
   const centerSubtitle = groupBy === 'location' ? `${options.length} active locations` : category ? `${visibleOptions.length} available types` : `${categoryOptions.length} categories`;
   const visibleRecords = visibleOptions.reduce((total, option) => total + Number(option.count || 0), 0);
   const nodeAccents = ['#0a3d7c', '#315f8f', '#52779b', '#234f78', '#6c8297', '#183f68'];
+  const beginNodeDrag = (event, option) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dragRef.current = { pointerId: event.pointerId, value: option.value, startX: event.clientX, startY: event.clientY, moved: false };
+    setDraggingNode(option.value);
+  };
+  const moveNode = (event) => {
+    const drag = dragRef.current;
+    const canvas = canvasRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !canvas) return;
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    event.preventDefault();
+    const bounds = canvas.getBoundingClientRect();
+    const nextPosition = { x: Math.min(.94, Math.max(.06, (event.clientX - bounds.left) / bounds.width)), y: Math.min(.89, Math.max(.08, (event.clientY - bounds.top) / bounds.height)) };
+    const next = { ...nodePositionsRef.current, [positionScope]: { ...(nodePositionsRef.current[positionScope] || {}), [drag.value]: nextPosition } };
+    nodePositionsRef.current = next;
+    setNodePositions(next);
+  };
+  const endNodeDrag = (event) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.moved) {
+      suppressClickRef.current = drag.value;
+      try { localStorage.setItem(INVENTORY_WEB_POSITIONS_KEY, JSON.stringify(nodePositionsRef.current)); } catch { /* Persistence can be unavailable in restricted browser sessions. */ }
+    }
+    dragRef.current = null;
+    setDraggingNode('');
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+  const activateNode = (option) => {
+    if (suppressClickRef.current === option.value) { suppressClickRef.current = ''; return; }
+    if (option.category) setCategory(option.value);
+    else onSelect(option.value);
+  };
 
   return (
     <div className="inventory-web-map" style={{ minHeight: webHeight + 104 }}>
@@ -78,7 +160,7 @@ function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
         {category && <button type="button" className="inventory-web-back" onClick={() => setCategory('')}>← All categories</button>}
       </div>
 
-      <div className="inventory-web-canvas" style={{ height: webHeight }}>
+      <div ref={canvasRef} className="inventory-web-canvas" style={{ height: webHeight }}>
         <div className="inventory-web-grid" aria-hidden="true" />
         <div className="inventory-web-orbit inventory-web-orbit--outer" aria-hidden="true" />
         <div className="inventory-web-orbit inventory-web-orbit--inner" aria-hidden="true" />
@@ -98,8 +180,10 @@ function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
         {visibleOptions.map((option, index) => {
           const position = positions[index];
           const model = !option.category ? MODELS.find((entry) => entry.id === option.value) : null;
-          return <button key={option.value} type="button" className="inventory-web-node" onClick={() => option.category ? setCategory(option.value) : onSelect(option.value)}
-            style={{ '--node-accent': nodeAccents[index % nodeAccents.length], animationDelay: `${80 + Math.min(index, 12) * 22}ms`, left: `${position.x / webWidth * 100}%`, top: `${position.y / webHeight * 100}%`, width: groupBy === 'type' ? 188 : 168 }}>
+          const horizontalPosition = position.x / webWidth;
+          const expandDirection = horizontalPosition < .37 ? 'right' : horizontalPosition > .63 ? 'left' : 'centre';
+          return <button key={option.value} type="button" className="inventory-web-node" data-expand={expandDirection} data-dragging={draggingNode === option.value ? 'true' : undefined} title={`${option.label} · ${option.count} record${option.count === 1 ? '' : 's'} · drag to reposition`} aria-label={`Open ${option.label}, ${option.count} record${option.count === 1 ? '' : 's'}. Drag to reposition.`} onPointerDown={(event) => beginNodeDrag(event, option)} onPointerMove={moveNode} onPointerUp={endNodeDrag} onPointerCancel={endNodeDrag} onClick={() => activateNode(option)}
+            style={{ '--node-accent': nodeAccents[index % nodeAccents.length], '--node-open-width': groupBy === 'type' ? '216px' : '202px', animationDelay: `${80 + Math.min(index, 12) * 22}ms`, left: `${position.x / webWidth * 100}%`, top: `${position.y / webHeight * 100}%` }}>
             <span className={`inventory-web-node-visual${model ? ' equipment-preview equipment-preview--node' : ''}`}>
               {model ? <canvas className="equipment-preview__canvas" data-model={glbUrl(model.id)} aria-label={`${model.name} 3D preview`} /> : <WebNodeIcon category={option.category ? option.label : ''} location={!option.category} />}
             </span>
@@ -155,10 +239,11 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
   const [page, setPage] = useState(1);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [bulkBarcodeOpen, setBulkBarcodeOpen] = useState(false);
+  const [viewingModel, setViewingModel] = useState(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [recordSort, setRecordSort] = useState({ key: 'asset', direction: 'asc' });
+  const [recordSort, setRecordSort] = useState({ key: 'added', direction: 'desc' });
   const [summarySort, setSummarySort] = useState({ key: 'type', direction: 'asc' });
-  const categories = useMemo(() => Array.from(new Set(MODELS.filter((model) => model.cons !== 1).map((m) => m.cat))).sort(), []);
+  const categories = useMemo(() => Array.from(new Set(MODELS.map((model) => model.cat))).sort(), []);
 
   const list = useMemo(() => {
     const q = filters.query.trim().toLowerCase();
@@ -191,7 +276,8 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
   }, [list, groupBy, selectedGroup]);
   const sortedGroupedList = useMemo(() => sortRows(groupedList, recordSort, {
     asset: (item) => item.name, tag: (item) => item.tag, location: (item) => `${item.location} ${item.room}`,
-    status: (item) => effStatus(item), assignment: (item) => item.assignedTo || item.borrower || '', quantity: (item) => Number(item.qty || 0), condition: (item) => item.condition
+    status: (item) => effStatus(item), assignment: (item) => item.assignedTo || item.borrower || '', quantity: (item) => Number(item.qty || 0), condition: (item) => item.condition,
+    added: inventoryAddedTimestamp
   }), [groupedList, recordSort]);
   const pageSize = view === 'grid' ? 36 : 100;
   const totalPages = Math.max(1, Math.ceil(groupedList.length / pageSize));
@@ -212,7 +298,7 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
 
   useEffect(() => {
     const validSelection = groupBy === 'type'
-      ? MODELS.some((model) => model.cons !== 1 && model.id === selectedGroup)
+      ? MODELS.some((model) => model.id === selectedGroup)
       : selectedGroup === ALL_BUILDINGS || groupOptions.some((option) => option.value === selectedGroup);
     if (selectedGroup && !validSelection) setSelectedGroup('');
     setPage(1);
@@ -225,7 +311,14 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
   useEffect(() => {
     const frame = requestAnimationFrame(() => Inv3D.sync());
     return () => cancelAnimationFrame(frame);
-  }, [section, selectedGroup, page, view, refreshVersion]);
+  }, [section, selectedGroup, page, view, refreshVersion, viewingModel]);
+
+  useEffect(() => {
+    if (!viewingModel) return undefined;
+    const close = (event) => { if (event.key === 'Escape') setViewingModel(null); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [viewingModel]);
 
   useEffect(() => {
     setSection('records');
@@ -236,14 +329,14 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
 
   const typeList = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
-    return MODELS.filter((model) => model.cons !== 1).filter((model) => {
+    return MODELS.filter((model) => {
       if (filters.fCategory !== 'All categories' && model.cat !== filters.fCategory) return false;
       if (query && !`${model.name} ${model.cat} ${model.id}`.toLowerCase().includes(query)) return false;
       return true;
     }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }, [filters.fCategory, filters.query]);
 
-  const typeSummary = useMemo(() => MODELS.filter((model) => model.cons !== 1).map((model) => {
+  const typeSummary = useMemo(() => MODELS.map((model) => {
     const records = items.filter((item) => item.model === model.id && (showArchived ? item.archived : !item.archived) && (showArchived || item.status !== 'Retired'));
     const quantity = (record) => Math.max(0, Number(record.qty) || 0);
     return {
@@ -371,13 +464,18 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill,minmax(${CARD_MIN_WIDTH}px,1fr))`, gap: 16 }}>
             {typeList.map((model) => (
-              <button key={model.id} type="button" data-card="1" onClick={() => openTypeRecords(model.id)}
+              <div key={model.id} role="button" tabIndex={0} data-card="1" onClick={() => openTypeRecords(model.id)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openTypeRecords(model.id); } }}
                 style={{ padding: 0, background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', textAlign: 'left' }}>
                 <span className="equipment-preview equipment-preview--card" style={{ height: 160 }}>
                   <canvas className="equipment-preview__canvas" data-model={glbUrl(model.id)} aria-label={`${model.name} 3D equipment preview`} />
                   <span style={{ position: 'absolute', top: 9, right: 9, padding: '3px 7px', background: model.cons ? '#fdf0e0' : '#e9effa', color: model.cons ? '#8a5209' : '#0a3d7c', borderRadius: 999, fontSize: 9.5, fontWeight: 700 }}>{model.cons ? 'Consumable' : 'Tracked asset'}</span>
                 </span>
-                <span style={{ padding: 12, borderTop: '1px solid #eceff3', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span className="equipment-type-card-body" style={{ padding: 12, borderTop: '1px solid #eceff3', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <button type="button" className="equipment-model-view-button" title={`View ${model.name} in 3D`} aria-label={`View ${model.name} in 3D`}
+                    onClick={(event) => { event.stopPropagation(); setViewingModel(model); }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><path d="m12 2 8 4.5v9L12 20l-8-4.5v-9z"/><path d="m4 6.5 8 4.5 8-4.5M12 11v9"/></svg>
+                  </button>
                   <span style={{ fontSize: 13, fontWeight: 600 }}>{model.name}</span>
                   <span style={{ fontSize: 10.5, color: '#7b8794' }}>{model.cat}</span>
                   <span style={{ paddingTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #f2f4f7' }}>
@@ -385,7 +483,7 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
                     <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 10.5, fontWeight: 600 }}>{money(model.cost)}</span>
                   </span>
                 </span>
-              </button>
+              </div>
             ))}
           </div>
           {typeList.length === 0 && <div style={{ padding: 44, textAlign: 'center', fontSize: 13, color: '#7b8794' }}>No equipment types match this search and category.</div>}
@@ -468,6 +566,21 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
       )}
 
       <BulkBarcodeModal open={bulkBarcodeOpen} items={selectedGroup ? groupedList : list} onClose={() => setBulkBarcodeOpen(false)} />
+      {viewingModel && createPortal(
+        <div className="equipment-model-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setViewingModel(null); }}>
+          <section className="equipment-model-modal" role="dialog" aria-modal="true" aria-labelledby="equipment-model-modal-title">
+            <header>
+              <span><small>INTERACTIVE 3D PREVIEW</small><strong id="equipment-model-modal-title">{viewingModel.name}</strong><em>{viewingModel.cat}</em></span>
+              <button type="button" onClick={() => setViewingModel(null)} aria-label="Close 3D model viewer">×</button>
+            </header>
+            <div className="equipment-model-modal-stage">
+              <canvas className="equipment-preview__canvas" data-model={glbUrl(viewingModel.id)} aria-label={`${viewingModel.name} interactive 3D model`} />
+              <span className="equipment-model-modal-hint">Drag to rotate · Scroll to zoom</span>
+            </div>
+            <footer><span>{viewingModel.cons ? 'Consumable item' : 'Tracked asset'}</span><span>{money(viewingModel.cost)} typical unit cost</span></footer>
+          </section>
+        </div>, document.body
+      )}
     </div>
   );
 }

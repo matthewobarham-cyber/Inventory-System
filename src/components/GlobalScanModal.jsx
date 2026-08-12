@@ -21,7 +21,7 @@ function Action({ kind, title, detail, disabled, recommended = false, onClick })
   </button>;
 }
 
-export default function GlobalScanModal({ scan, item, reserved, canManageLoans, canEdit, onClose, onView, onUseConsumable, onOpenConsumables, onCheckout, onCheckin, onStocktake, onRegister, onScannerConsole }) {
+export default function GlobalScanModal({ scan, item, reserved, canManageLoans, borrowingApproved = false, canEdit, onClose, onView, onUseConsumable, onOpenConsumables, onCheckout, onCheckin, onStocktake, onRegister, onScannerConsole }) {
   useEffect(() => {
     if (!scan) return undefined;
     const closeOnEscape = (event) => { if (event.key === 'Escape') onClose(); };
@@ -33,7 +33,7 @@ export default function GlobalScanModal({ scan, item, reserved, canManageLoans, 
   const modelId = item?.model || reserved?.model;
   const status = item ? (item.consumable ? `${Number(item.qty || 0)} ${item.unitOfMeasure || 'units'} available` : effStatus(item)) : reserved ? 'Reserved label' : 'Not registered';
   const statusKey = item ? (item.consumable ? Number(item.qty || 0) > 0 ? 'available' : 'attention' : effStatus(item).toLowerCase().replaceAll(' ', '-')) : reserved ? 'reserved' : 'attention';
-  const canCheckout = canManageLoans && item && !item.consumable && item.status === 'In stock';
+  const canCheckout = canManageLoans && borrowingApproved && item && !item.consumable && item.status === 'In stock';
   const canCheckin = canManageLoans && item?.status === 'On loan';
   const recommendation = item?.consumable
     ? Number(item.qty || 0) > 0 && canEdit ? { kind: 'consume', label: 'Issue consumable stock' } : { kind: 'consumables', label: 'Review stock position' }
@@ -90,7 +90,7 @@ export default function GlobalScanModal({ scan, item, reserved, canManageLoans, 
               <Action kind="view" recommended={recommendation.kind === 'view'} title="View stock record" detail="Open purchasing and usage details" onClick={onView} />
             </> : item ? <>
               <Action kind="view" recommended={recommendation.kind === 'view'} title="View full asset" detail="Open lifecycle, assignment, and service history" onClick={onView} />
-              <Action kind="checkout" recommended={recommendation.kind === 'checkout'} title="Check out" detail={canCheckout ? 'Start borrower and custody workflow' : `Unavailable while ${item.status}`} disabled={!canCheckout} onClick={onCheckout} />
+              <Action kind="checkout" recommended={recommendation.kind === 'checkout'} title="Check out" detail={canCheckout ? 'Start borrower and custody workflow' : !borrowingApproved ? 'Restricted by the borrowing access policy' : `Unavailable while ${item.status}`} disabled={!canCheckout} onClick={onCheckout} />
               <Action kind="checkin" recommended={recommendation.kind === 'checkin'} title="Check in" detail={canCheckin ? 'Inspect and process the return' : 'Only available for loaned assets'} disabled={!canCheckin} onClick={onCheckin} />
             </> : <Action kind="register" recommended={recommendation.kind === 'register'} title={reserved ? `Add ${reserved.equipmentType || 'inventory item'}` : 'Register new asset'} detail={reserved ? 'Open a categorized, pre-filled inventory form' : 'Create a new record using this barcode'} disabled={!canEdit} onClick={onRegister} />}
             <Action kind="stocktake" title="Stocktake scanner" detail="Verify this item in a physical count" onClick={onStocktake} />

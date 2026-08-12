@@ -63,7 +63,7 @@ export default function Users({ accounts, userState, navConfig = NAV, auditEntri
     if (accounts.some((account) => account.email.toLowerCase() === email)) { setCreateError('An account already uses that campus email.'); return; }
     if (password.length < 8) { setCreateError('The temporary password must contain at least 8 characters.'); return; }
     if (!(createDraft.campusId || '').trim()) { setCreateError('Campus ID is required.'); return; }
-    const result = await onCreateAccount(Object.fromEntries(Object.entries({ ...createDraft, name, email }).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value])));
+    const result = await onCreateAccount(Object.fromEntries(Object.entries({ ...createDraft, name, email }).map(([key, value]) => [key, typeof value === 'string' && key !== 'pass' ? value.trim() : value])));
     if (result?.error) { setCreateError(result.error); return; }
     setCreating(false);
     setSelectedEmail(email);
@@ -252,13 +252,7 @@ function NewUserModal({ draft, error, onChange, onSave, onClose }) {
 function UserProfile({ account, active, editing, draft, error, navConfig, onDraftChange, onStartEditing, onCancelEditing, onSave, onAvatarChange, onToggle, onResetPassword, onClose }) {
   const [avatarError, setAvatarError] = useState('');
   const [resetStatus, setResetStatus] = useState('');
-  const [resetting, setResetting] = useState(false);
-  const sendReset = async () => {
-    setResetting(true); setResetStatus('');
-    const result = await onResetPassword(account.email);
-    setResetting(false);
-    setResetStatus(result?.error || `Recovery email requested for ${account.email}.`);
-  };
+  const [resetOpen, setResetOpen] = useState(false);
   const details = [
     ['Campus ID', account.campusId],
     ['Campus email', account.email],
@@ -292,13 +286,13 @@ function UserProfile({ account, active, editing, draft, error, navConfig, onDraf
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
               {!editing && <button type="button" className="btn-ghost" onClick={onStartEditing} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Edit profile</button>}
-              {!editing && onResetPassword && <button type="button" className="btn-ghost" disabled={resetting} onClick={sendReset} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>{resetting ? 'Sending…' : 'Reset password'}</button>}
+              {!editing && onResetPassword && <button type="button" className="btn-ghost" onClick={() => { setResetStatus(''); setResetOpen(true); }} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Reset password</button>}
               {!editing && <button type="button" onClick={() => onToggle(account.email, active)} className={active ? 'btn-ghost-danger' : 'btn-primary'} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>{active ? 'Suspend account' : 'Restore account'}</button>}
               {editing && <button type="button" className="btn-ghost" onClick={onCancelEditing} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Cancel</button>}
               {editing && <button type="button" className="btn-primary" onClick={onSave} style={{ height: 34, padding: '0 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Save changes</button>}
             </span>
           </div>
-          {!!resetStatus && <div style={{ margin: '12px 20px 0', padding: '9px 11px', background: resetStatus.startsWith('Recovery') ? '#e7f4ec' : '#fdeceb', borderRadius: 8, color: resetStatus.startsWith('Recovery') ? '#155e3f' : '#a01a12', fontSize: 11 }}>{resetStatus}</div>}
+          {!!resetStatus && <div style={{ margin: '12px 20px 0', padding: '9px 11px', background: resetStatus.startsWith('Temporary') ? '#e7f4ec' : '#fdeceb', borderRadius: 8, color: resetStatus.startsWith('Temporary') ? '#155e3f' : '#a01a12', fontSize: 11 }}>{resetStatus}</div>}
           {avatarError && <div style={{ margin: '12px 20px 0', padding: '9px 11px', background: '#fdeceb', border: '1px solid #f4cdc9', borderRadius: 7, color: '#a01a12', fontSize: 12 }}>{avatarError}</div>}
 
           <div style={{ padding: 20 }}>
@@ -333,6 +327,72 @@ function UserProfile({ account, active, editing, draft, error, navConfig, onDraf
             <span style={{ fontSize: 11.5, color: '#7b8794' }}>Most recent system activity</span>
             <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11.5, fontWeight: 600, color: active ? '#3f4a56' : '#a01a12' }}>{active ? account.lastSeen : 'Account suspended'}</span>
           </div>
+        </div>
+      </div>
+      {resetOpen && <PasswordResetModal account={account} onReset={onResetPassword} onClose={() => setResetOpen(false)} onComplete={() => { setResetOpen(false); setResetStatus(`Temporary password updated for ${account.email}.`); }} />}
+    </div>
+  );
+}
+
+function generateTemporaryPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+  const values = new Uint32Array(14);
+  crypto.getRandomValues(values);
+  return Array.from(values, (value) => alphabet[value % alphabet.length]).join('');
+}
+
+function PasswordResetModal({ account, onReset, onClose, onComplete }) {
+  const [password, setPassword] = useState(() => generateTemporaryPassword());
+  const [confirm, setConfirm] = useState('');
+  const [visible, setVisible] = useState(true);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    if (password.length < 8) { setError('The temporary password must contain at least 8 characters.'); return; }
+    if (password !== confirm) { setError('The passwords do not match.'); return; }
+    setSaving(true);
+    const result = await onReset(account.email, password);
+    setSaving(false);
+    if (result?.error) { setError(result.error); return; }
+    onComplete();
+  };
+  const regenerate = () => {
+    setPassword(generateTemporaryPassword());
+    setConfirm('');
+    setError('');
+    setVisible(true);
+  };
+  const inputStyle = { height: 42, padding: '0 12px', border: '1px solid #d8e0e7', borderRadius: 9, background: '#f7f9fb', fontFamily: "'IBM Plex Mono',monospace", fontSize: 12.5, outline: 'none' };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="password-reset-title" style={{ position: 'fixed', inset: 0, zIndex: 49, padding: 24, display: 'grid', placeItems: 'center', background: 'rgba(10,18,25,.58)', backdropFilter: 'blur(8px)' }}>
+      <div style={{ width: 'min(100%, 480px)', overflow: 'hidden', borderRadius: 16, background: '#fff', boxShadow: '0 24px 70px rgba(5,17,28,.3)' }}>
+        <div style={{ padding: '19px 21px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#102c3a', color: '#fff' }}>
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span id="password-reset-title" style={{ fontSize: 16, fontWeight: 700 }}>Set temporary password</span>
+            <span style={{ color: '#b9ced7', fontSize: 11.5 }}>{account.name} · {account.email}</span>
+          </span>
+          <button type="button" onClick={onClose} aria-label="Close password reset" style={{ width: 32, height: 32, display: 'grid', placeItems: 'center', border: 0, borderRadius: 9, background: 'rgba(255,255,255,.1)', color: '#fff', cursor: 'pointer' }}><IconX /></button>
+        </div>
+        <div style={{ padding: 21, display: 'flex', flexDirection: 'column', gap: 15 }}>
+          <p style={{ margin: 0, color: '#657483', fontSize: 12.5, lineHeight: 1.55 }}>Give this password to the user securely. It takes effect immediately after you confirm the reset.</p>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ color: '#647382', fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>New temporary password</span>
+            <span style={{ display: 'flex', gap: 8 }}>
+              <input autoFocus type={visible ? 'text' : 'password'} value={password} onChange={(event) => { setPassword(event.target.value); setError(''); }} autoComplete="new-password" style={{ ...inputStyle, minWidth: 0, flex: 1 }} />
+              <button type="button" className="btn-ghost" onClick={() => setVisible((current) => !current)} style={{ height: 42, padding: '0 12px', borderRadius: 9 }}>{visible ? 'Hide' : 'Show'}</button>
+            </span>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ color: '#647382', fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>Confirm password</span>
+            <input type={visible ? 'text' : 'password'} value={confirm} onChange={(event) => { setConfirm(event.target.value); setError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !saving) submit(); }} autoComplete="new-password" style={inputStyle} />
+          </label>
+          <button type="button" onClick={regenerate} style={{ alignSelf: 'flex-start', padding: 0, border: 0, background: 'transparent', color: '#0a5b91', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Generate a different password</button>
+          {!!error && <div role="alert" style={{ padding: '10px 12px', borderRadius: 9, background: '#fdeceb', color: '#a01a12', fontSize: 12 }}>{error}</div>}
+        </div>
+        <div style={{ padding: '14px 21px 18px', display: 'flex', justifyContent: 'flex-end', gap: 9 }}>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={saving} style={{ height: 38, padding: '0 14px', borderRadius: 9 }}>Cancel</button>
+          <button type="button" className="btn-primary" onClick={submit} disabled={saving} style={{ height: 38, padding: '0 16px', borderRadius: 9 }}>{saving ? 'Resetting…' : 'Set password'}</button>
         </div>
       </div>
     </div>

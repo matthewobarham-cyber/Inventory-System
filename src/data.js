@@ -63,10 +63,46 @@ MODELS.forEach((m, i) => { m.cons = SINGLE_USE_CONSUMABLE_IDS.has(m.id) ? 1 : 0;
 export const MODEL_BY = {};
 MODELS.forEach(m => { MODEL_BY[m.id] = m; });
 
-const MODEL_ASSET_VERSION = { 'usb-headset': 2, 'multifunction-printer': 2, 'laser-printer': 2, 'wired-mouse': 2, 'wireless-mouse': 2 };
+const MODEL_ASSET_VERSION = {
+  'usb-headset': 2, 'multifunction-printer': 2, 'laser-printer': 2, 'wired-mouse': 2, 'wireless-mouse': 2,
+  tablet: 3, 'technician-toolkit': 3,
+  chromebook: 3, 'cooling-fan': 3, motherboard: 3, 'conference-bar': 3, 'conference-speakerphone': 3,
+  'desktop-speakers': 3, 'desktop-tower': 3, camcorder: 3, 'desktop-processor': 3,
+  'barcode-scanner': 3, 'hardware-security-key': 3, 'hdmi-cable': 3, 'interactive-panel': 3,
+  'kvm-switch': 3, 'label-applicator': 3, 'office-phone': 3, 'laptop-bag': 3, 'laptop-battery': 3,
+  'digital-multimeter': 3, projector: 3, 'digital-signage-player': 3, 'displayport-cable': 3,
+  'document-camera': 3, 'drive-docking-station': 3, 'electronics-cleaning-kit': 3,
+  'security-cable-lock': 3, 'ethernet-crimping-tool': 3, 'external-hard-drive': 3,
+  'laptop-charger': 3, 'docking-station': 3, 'laptop-stand': 3, 'large-format-plotter': 3,
+  'memory-card-reader': 3, 'memory-module': 3, 'microphone-stand': 3, 'microwave-oven': 3,
+  'mini-pc': 3, 'monitor-arm': 3,
+  'nas-device': 3, 'network-cable-tester': 3, 'patch-panel': 3, 'network-rack': 3,
+  'network-video-recorder': 3, 'office-appliance': 3, 'office-furniture': 3, laminator: 3, monitor: 3,
+  'other-equipment': 3, headphones: 3, 'pa-speaker': 3, 'paper-shredder': 3,
+  'poe-injector': 3, 'portable-generator': 3, 'portable-monitor': 3, 'power-bank': 3,
+  'power-distribution-unit': 3, 'power-inverter': 3,
+  'presentation-clicker': 3, 'professional-microphone': 3, 'projector-screen': 3,
+  'ptz-camera': 3, 'rack-server': 3, 'receipt-printer': 3, refrigerator: 3,
+  'replacement-laptop-keyboard': 3, 'room-scheduling-panel': 3, 'sd-memory-card': 3,
+  'network-switch': 3, '3d-printer': 3, 'ac-power-adapter': 3, 'access-control-panel': 3,
+  'air-conditioner': 3, 'all-in-one-desktop': 3, 'audio-mixer': 3, 'label-printer': 3,
+  'binding-machine': 3, 'biometric-reader': 3,
+  'thin-client': 3, ups: 3, 'ups-replacement-battery': 3, 'usb-ethernet-adapter': 3,
+  'usb-flash-drive': 3, 'usb-hub': 3, 'usb-headset': 3, webcam: 3,
+  'usb-c-cable': 3, 'display-adapter': 3,
+  'vga-cable': 3, 'video-capture-card': 3, 'video-encoder': 3, 'water-dispenser': 3,
+  'wifi-router': 3, 'wired-mouse': 3, 'wireless-access-point': 3,
+  'wireless-microphone-kit': 3, 'wireless-mouse': 3, 'xlr-cable': 3,
+  'sfp-module': 3, 'smart-board': 3, 'smart-television': 3, 'solid-state-drive': 3,
+  'standing-fan': 3, 'surge-protector': 3, tablet: 4, 'tape-drive': 3,
+  'technician-toolkit': 4, teleprompter: 3,
+  'fiber-optic-patch-cable': 3, 'firewall-appliance': 3, 'flatbed-scanner': 3,
+  keyboard: 3, 'graphics-workstation': 3, 'printer-toner': 3
+};
 const modelAssetVersion = id => MODEL_ASSET_VERSION[id] ? `?v=${MODEL_ASSET_VERSION[id]}` : '';
-export const glbUrl = id => PACKS[MODEL_BY[id].pack] + 'models/' + id + '.glb' + modelAssetVersion(id);
-export const pngUrl = id => PACKS[MODEL_BY[id].pack] + 'previews/' + id + (MODEL_BY[id].pack === 'generated' ? '.svg?v=2' : '.png' + modelAssetVersion(id));
+const MODEL_GLBS = { 'printer-toner': 'generated/models/toner-black.glb' };
+export const glbUrl = id => (MODEL_GLBS[id] || (PACKS[MODEL_BY[id].pack] + 'models/' + id + '.glb')) + modelAssetVersion(id);
+export const pngUrl = id => PACKS[MODEL_BY[id].pack] + 'previews/' + id + (MODEL_BY[id].pack === 'generated' ? `.svg?v=${MODEL_ASSET_VERSION[id] || 2}` : '.png' + modelAssetVersion(id));
 
 export const BUILDINGS = ['Building A', 'Building B', 'Building D', 'Doc Center', 'Bloomberg', 'Building H', 'Building I', 'South', 'Storage room'];
 export const ROOM_PREFIX = { 'Storage room': 'ST', 'Building A': 'A', 'Building B': 'B', 'Building D': 'D', 'Doc Center': 'DC', 'Bloomberg': 'BB', 'Building H': 'H', 'Building I': 'I', 'South': 'S' };

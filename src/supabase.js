@@ -110,6 +110,19 @@ export async function createSupabaseAccount(account) {
   return profileToAccount(data.profile);
 }
 
+export async function resetSupabaseAccountPassword(email, password) {
+  const client = requireClient();
+  const { data, error } = await client.functions.invoke('admin-reset-password', {
+    body: { email: String(email || '').trim().toLowerCase(), password }
+  });
+  if (error) {
+    let detail = '';
+    try { detail = (await error.context?.json())?.error || ''; } catch { /* Use the SDK error below. */ }
+    throw new Error(detail || error.message);
+  }
+  if (data?.error) throw new Error(data.error);
+}
+
 export async function updateSupabaseProfile(email, changes) {
   const client = requireClient();
   const { data, error } = await client.from('profiles').update({ ...profileChanges(changes), updated_at: new Date().toISOString() }).eq('email', email.toLowerCase()).select().single();

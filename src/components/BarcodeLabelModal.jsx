@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import JsBarcode from 'jsbarcode';
 import { IconX } from '../icons.jsx';
 
 export function BarcodeGraphic({ value, height = 54, width = 2, displayValue = true }) {
@@ -6,21 +7,34 @@ export function BarcodeGraphic({ value, height = 54, width = 2, displayValue = t
 
   useEffect(() => {
     if (!svgRef.current || !value) return;
-    let cancelled = false;
-    import('jsbarcode').then(({ default: JsBarcode }) => { if (!cancelled && svgRef.current) JsBarcode(svgRef.current, value, {
-      format: 'CODE128',
-      lineColor: '#111820',
-      background: '#ffffff',
-      width,
-      height,
-      margin: 0,
-      marginBottom: displayValue ? 12 : 0,
-      displayValue,
-      font: 'IBM Plex Mono',
-      fontSize: 14,
-      textMargin: 6
-    }); });
-    return () => { cancelled = true; };
+    const svg = svgRef.current;
+    try {
+      svg.removeAttribute('data-barcode-error');
+      JsBarcode(svg, String(value), {
+        format: 'CODE128',
+        lineColor: '#111820',
+        background: '#ffffff',
+        width,
+        height,
+        margin: 0,
+        marginBottom: displayValue ? 12 : 0,
+        displayValue,
+        font: 'IBM Plex Mono',
+        fontSize: 14,
+        textMargin: 6
+      });
+    } catch (error) {
+      svg.replaceChildren();
+      svg.setAttribute('data-barcode-error', 'true');
+      svg.setAttribute('viewBox', '0 0 240 56');
+      const message = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      message.setAttribute('x', '120');
+      message.setAttribute('y', '31');
+      message.setAttribute('text-anchor', 'middle');
+      message.textContent = 'Barcode preview unavailable';
+      svg.appendChild(message);
+      console.error('Barcode rendering failed', error);
+    }
   }, [value, height, width, displayValue]);
 
   return <svg ref={svgRef} role="img" aria-label={`Barcode for ${value}`} style={{ display: 'block', maxWidth: '100%', height: 'auto', overflow: 'visible' }} />;

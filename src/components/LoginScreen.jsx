@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { roleTagStyle } from '../data.js';
 import { IconAlert, IconArrowRight } from '../icons.jsx';
+import { loadRecentLogins, loadRecentPassword } from '../recent-logins.js';
 
 const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'IT';
 
-export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestPasswordReset, cloudEnabled = false }) {
+export default function LoginScreen({ accounts, accountDirectory = [], onLogin, onDemoLogin, onRequestPasswordReset, cloudEnabled = false }) {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [remember, setRemember] = useState(false);
@@ -16,11 +17,36 @@ export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestP
   const [resetError, setResetError] = useState('');
   const [resetSent, setResetSent] = useState(false);
   const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [successTransition, setSuccessTransition] = useState(false);
+  const [recentAccounts] = useState(() => loadRecentLogins().map((recent) => {
+    const current = accountDirectory.find((account) => account.email?.toLowerCase() === recent.email.toLowerCase());
+    return current ? { ...recent, name: current.name || recent.name, role: current.role || recent.role } : recent;
+  }));
+  const [recentFill, setRecentFill] = useState('');
+  const fillTimerRef = useRef(null);
+
+  const fillRecentAccount = async (account) => {
+    if (submitting) return;
+    window.clearTimeout(fillTimerRef.current);
+    setError(''); setShowPassword(false); setRecentFill(account.email);
+    setEmail(''); setPass('');
+    await new Promise((resolve) => window.setTimeout(resolve, 110));
+    setEmail(account.email);
+    if (String(account.role || '').toLowerCase() === 'admin') await window.api?.deleteRecentCredential?.(account.email);
+    else setPass(await loadRecentPassword(account));
+    fillTimerRef.current = window.setTimeout(() => setRecentFill(''), 720);
+  };
+
+  const playSuccessTransition = () => new Promise((resolve) => {
+    setSuccessTransition(true);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.setTimeout(resolve, reducedMotion ? 80 : 760);
+  });
 
   const submit = async () => {
     if (submitting) return;
     setSubmitting(true);
-    const res = await onLogin(email.trim(), pass, remember);
+    const res = await onLogin(email.trim(), pass, remember, playSuccessTransition);
     if (res?.error) setError(res.error);
     setSubmitting(false);
   };
@@ -28,7 +54,7 @@ export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestP
   const signInDemo = async (acct) => {
     if (submitting) return;
     setSubmitting(true); setError('');
-    const result = await onDemoLogin(acct.email, remember);
+    const result = await onDemoLogin(acct.email, remember, playSuccessTransition);
     if (result?.error) setError(result.error);
     setSubmitting(false);
   };
@@ -45,15 +71,19 @@ export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestP
   };
 
   return (
-    <main className="login-shell">
+    <main className="login-shell" data-authenticating={submitting ? 'true' : undefined} data-auth-transition={successTransition ? 'leaving' : undefined}>
       <section className="login-visual-panel" aria-label="MSBM inventory operations">
         <div className="login-visual-grid" aria-hidden="true" />
         <div className="login-visual-orbit orbit-one" aria-hidden="true" />
         <div className="login-visual-orbit orbit-two" aria-hidden="true" />
+        <div className="login-visual-aurora" aria-hidden="true"><i /><i /><i /></div>
 
         <div className="login-model-stage" aria-hidden="true">
           <div className="login-model-halo" />
+          <div className="login-model-reticle"><i /><i /><i /><i /></div>
+          <div className="login-model-scan"><i /></div>
           <div data-detail-model="generated/models/login-workstation.glb?v=5" data-detail-interactive="false" data-detail-spin="true" data-detail-fps="60" data-detail-scale="1.22" />
+          <div className="login-model-telemetry"><span><i /> Asset network online</span><code>MSBM // 60 FPS</code></div>
         </div>
 
         <div className="login-visual-copy">
@@ -73,6 +103,7 @@ export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestP
       <section className="login-form-panel">
         <div className="login-form-atmosphere" aria-hidden="true" />
         <div className="login-form-card">
+          <div className="login-card-system-line" aria-hidden="true"><i /><span>SECURE ACCESS NODE</span><b>01</b></div>
           <header className="login-form-heading">
             <img src="brand/msbm-lockup.png" alt="Mona School of Business & Management" />
             <span className="login-form-kicker">Secure inventory workspace</span>
@@ -81,13 +112,23 @@ export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestP
           </header>
 
           <div className="login-fields">
+            {recentAccounts.length > 0 && <section className="login-recent-accounts" aria-label="Recently signed in accounts">
+              <header><span><small>Welcome back</small><strong>Recently signed in</strong></span><i>{recentAccounts.length}</i></header>
+              <div>
+                {recentAccounts.map((account) => <button key={account.email} type="button" disabled={submitting} data-filling={recentFill === account.email ? 'true' : undefined} onClick={() => fillRecentAccount(account)} aria-label={`Fill sign-in details for ${account.name}`}>
+                  <span className="login-recent-avatar">{initials(account.name)}</span>
+                  <span><strong>{account.name}</strong><small>{String(account.role || '').toLowerCase() === 'admin' ? 'Password required' : window.api?.loadRecentCredential ? 'Secure quick fill' : 'Username quick fill'}</small></span>
+                  <b style={roleTagStyle(account.role)}>{account.role}</b>
+                </button>)}
+              </div>
+            </section>}
             <label className="login-field">
               <span>Campus email</span>
-              <div><i aria-hidden="true">@</i><input type="email" value={email} onChange={(event) => { setEmail(event.target.value); setError(''); }} onKeyDown={onKey} placeholder="name@uwi.edu" autoComplete="username" /></div>
+              <div data-autofilled={recentFill ? 'true' : undefined}><i aria-hidden="true">@</i><input type="email" value={email} onChange={(event) => { setEmail(event.target.value); setError(''); }} onKeyDown={onKey} placeholder="name@uwi.edu" autoComplete="username" /></div>
             </label>
             <label className="login-field">
               <span>Password</span>
-              <div><i aria-hidden="true">●</i><input type={showPassword ? 'text' : 'password'} value={pass} onChange={(event) => { setPass(event.target.value); setError(''); }} onKeyDown={onKey} placeholder="Enter your password" autoComplete="current-password" /><button type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button></div>
+              <div data-autofilled={recentFill && pass ? 'true' : undefined}><i aria-hidden="true">●</i><input type={showPassword ? 'text' : 'password'} value={pass} onChange={(event) => { setPass(event.target.value); setError(''); }} onKeyDown={onKey} placeholder="Enter your password" autoComplete="current-password" /><button type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button></div>
             </label>
 
             {!!error && <div className="login-error" role="alert"><IconAlert color="currentColor" /><span>{error}</span></div>}
@@ -98,6 +139,7 @@ export default function LoginScreen({ accounts, onLogin, onDemoLogin, onRequestP
             </div>
 
             <button type="button" className="login-submit" onClick={submit} disabled={submitting}>
+              <i className="login-submit-scan" aria-hidden="true" />
               <span>{submitting ? 'Signing you in…' : 'Enter inventory console'}</span><IconArrowRight />
             </button>
           </div>

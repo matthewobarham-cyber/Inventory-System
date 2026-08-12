@@ -3,17 +3,19 @@ import CsvImport from './CsvImport.jsx';
 import Users from './Users.jsx';
 import Vendors from './Vendors.jsx';
 import ApprovalContacts from './ApprovalContacts.jsx';
+import BorrowingAccess from './BorrowingAccess.jsx';
 
 const ADMIN_SECTIONS = [
   ['approvers', 'Approval contacts', 'Management names and approval email addresses', '@'],
   ['vendors', 'Approved vendors', 'Supplier records and purchasing history', '✓'],
   ['imports', 'CSV data', 'Import and review company records', '↥'],
+  ['borrowing', 'Borrowing access', 'Control which assets TSRs may check out', '⇄'],
   ['accounts', 'Users', 'Accounts, profiles and access status', '◎'],
   ['access', 'Page access', 'Role permissions and application pages', '◇'],
   ['audit', 'Activity log', 'Security and operational audit history', '≡']
 ];
 
-export default function Settings({ isAdmin, accounts, userState, navConfig, auditEntries, importRuns, procurementRecords, vendors, approvalContacts, items, orders, accountStorage = 'Stored locally', onImport, onSaveVendor, onToggleVendor, onSaveApprovalContact, onToggleApprovalContact, onAccessChange, onToggle, onUpdateProfile, onCreateAccount, onResetPassword }) {
+export default function Settings({ isAdmin, accounts, userState, navConfig, auditEntries, importRuns, procurementRecords, vendors, approvalContacts, items, orders, borrowCategoryAccess = {}, accountStorage = 'Stored locally', onImport, onSaveVendor, onToggleVendor, onSaveApprovalContact, onToggleApprovalContact, onBorrowCategoryChange, onAccessChange, onToggle, onUpdateProfile, onCreateAccount, onResetPassword }) {
   const sections = isAdmin ? ADMIN_SECTIONS : [ADMIN_SECTIONS[0]];
   const [active, setActive] = useState('imports');
   const selected = sections.find(([key]) => key === active) || sections[0];
@@ -26,7 +28,8 @@ export default function Settings({ isAdmin, accounts, userState, navConfig, audi
         {activeKey === 'imports' && <CsvImport importRuns={importRuns} procurementRecords={procurementRecords} canImport={isAdmin} onCommit={onImport} />}
         {isAdmin && activeKey === 'vendors' && <Vendors vendors={vendors} items={items} orders={orders} procurementRecords={procurementRecords} onSave={onSaveVendor} onToggle={onToggleVendor} />}
         {isAdmin && activeKey === 'approvers' && <ApprovalContacts contacts={approvalContacts} onSave={onSaveApprovalContact} onToggle={onToggleApprovalContact} />}
-        {isAdmin && !['imports', 'vendors', 'approvers'].includes(activeKey) && <Users accounts={accounts} userState={userState} navConfig={navConfig} auditEntries={auditEntries} activeSection={activeKey} hideNavigation onAccessChange={onAccessChange} onToggle={onToggle} onUpdateProfile={onUpdateProfile} onCreateAccount={onCreateAccount} onResetPassword={onResetPassword} />}
+        {isAdmin && activeKey === 'borrowing' && <BorrowingAccess items={items} categoryAccess={borrowCategoryAccess} onChange={onBorrowCategoryChange} />}
+        {isAdmin && !['imports', 'vendors', 'approvers', 'borrowing'].includes(activeKey) && <Users accounts={accounts} userState={userState} navConfig={navConfig} auditEntries={auditEntries} activeSection={activeKey} hideNavigation onAccessChange={onAccessChange} onToggle={onToggle} onUpdateProfile={onUpdateProfile} onCreateAccount={onCreateAccount} onResetPassword={onResetPassword} />}
       </div></main>
     </div>
   </div>;

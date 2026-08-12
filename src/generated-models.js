@@ -1,7 +1,7 @@
 // Lightweight procedural equipment pack. The `shape` value is consumed by the
 // model-generation script; the inventory application uses the remaining fields.
 export const GENERATED_MODELS = [
-  { id: 'tablet', name: 'Tablet', cat: 'Computers', cons: 0, cost: 3200, pack: 'generated', shape: 'display' },
+  { id: 'tablet', name: 'Tablet', cat: 'Computers', cons: 0, cost: 3200, pack: 'generated', shape: 'tablet' },
   { id: 'chromebook', name: 'Chromebook', cat: 'Computers', cons: 0, cost: 4200, pack: 'generated', shape: 'laptop' },
   { id: 'mini-pc', name: 'Mini PC', cat: 'Computers', cons: 0, cost: 3900, pack: 'generated', shape: 'computer' },
   { id: 'graphics-workstation', name: 'Graphics Workstation', cat: 'Computers', cons: 0, cost: 18500, pack: 'generated', shape: 'computer' },
