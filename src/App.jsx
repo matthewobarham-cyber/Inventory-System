@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ACCOUNTS, NAV, LABELS, BUILDINGS, MODELS, SUPPLIERS,
-  iso, today, isLowStock, money, glbUrl,
+  iso, today, isLowStock, needsStockAttention, money, glbUrl,
   ROTATION_SPEED, DEFAULT_VIEW, LOAN_TERM_DAYS
 } from './data.js';
 import { loadPersisted, savePersisted, loadSessionPointer, saveSessionPointer, clearSessionPointer } from './store.js';
@@ -25,6 +25,7 @@ import GlobalScanModal from './components/GlobalScanModal.jsx';
 import Toast from './components/Toast.jsx';
 import Dashboard from './components/Dashboard.jsx';
 import Inventory from './components/Inventory.jsx';
+import StaffBorrowing from './components/StaffBorrowing.jsx';
 import Consumables from './components/Consumables.jsx';
 import ItemDetail from './components/ItemDetail.jsx';
 import Loans from './components/Loans.jsx';
@@ -54,6 +55,7 @@ import { generateOrderApprovalPdf } from './order-approval-pdf.js';
 
 window.__inv3dSpeed = ROTATION_SPEED;
 const ACTIVE_REPAIR_STATES = ['Open', 'In progress', 'Awaiting vendor'];
+const DISPOSITION_ACTION_TYPES = ['Disposal', 'Donation', 'Write-off', 'Loss'];
 const LOCAL_PASSWORD_HASHES = {
   'a.hosein@uwi.edu': '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'
 };
@@ -64,6 +66,9 @@ async function hashPassword(value) {
 }
 
 const asArray = (value) => Array.isArray(value) ? value : [];
+const isPrinterSupplyModel = (model) => Boolean(model?.cons === 1 && (
+  model.id === 'printer-toner' || /toner|ink cartridge|printer cartridge/i.test(`${model.name || ''} ${model.id || ''}`)
+));
 const normalizeNavOverrides = (stored = {}) => Object.fromEntries(Object.entries(NAV).map(([role, defaults]) => {
   const source = Array.isArray(stored?.[role]) ? stored[role] : defaults;
   const hadLegacyAdministration = source.includes('imports') || source.includes('users');
@@ -104,13 +109,24 @@ const formatMsbmAssetTag = (code, sequence, dateValue = new Date()) => {
   const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   return `MSBM/${String(code || 'EQP').toUpperCase()}/${sequence}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
 };
+const expectedReplacementFrom = (purchaseValue, usefulLifeYears) => {
+  const years = Number.parseInt(usefulLifeYears, 10);
+  if (!Number.isFinite(years) || years < 1) return '';
+  const purchaseDate = purchaseValue instanceof Date ? new Date(purchaseValue) : new Date(`${purchaseValue || ''}T12:00:00`);
+  if (Number.isNaN(purchaseDate.getTime())) return '';
+  const originalMonth = purchaseDate.getMonth();
+  purchaseDate.setFullYear(purchaseDate.getFullYear() + years);
+  // Keep leap-day assets at the end of February instead of rolling into March.
+  if (purchaseDate.getMonth() !== originalMonth) purchaseDate.setDate(0);
+  return iso(purchaseDate);
+};
 
 function freshWorld() {
   return { items: [], history: [], requests: [], orders: [], placements: [], stocktakes: [], repairTickets: [], maintenanceSchedules: [], lifecycleActions: [], procurementRecords: [], importRuns: [], csvCloudCursor: '', auditLog: [], userState: {}, profileState: {}, customAccounts: [], reservedBarcodes: [], approvedVendors: [], approvalContacts: [], maintenanceContacts: [], loanContacts: [], consumableUsage: [], borrowCategoryAccess: {} };
 }
 
 const isBorrowingApproved = (item, categoryAccess = {}) => {
-  if (!item || item.archived || item.consumable) return false;
+  if (!item || item.archived || item.consumable || item.disposalApproved || item.status === 'Retired') return false;
   if (item.borrowEligibility === 'allowed') return true;
   if (item.borrowEligibility === 'blocked') return false;
   return categoryAccess[item.category] === true;
@@ -213,6 +229,9 @@ export default function App() {
   const [borrowCategoryAccess, setBorrowCategoryAccess] = useState({});
   const [consumableScannerAction, setConsumableScannerAction] = useState(null);
   const [blankBarcodeOpen, setBlankBarcodeOpen] = useState(false);
+  const [scannerLabelQueue, setScannerLabelQueue] = useState([]);
+  const [scannerLabelFocusSignal, setScannerLabelFocusSignal] = useState(0);
+  const [lifecycleFocus, setLifecycleFocus] = useState({ itemId: '', nonce: 0 });
 
   const [screen, setScreen] = useState('dashboard');
   const [sidebarMotion, setSidebarMotion] = useState('');
@@ -258,6 +277,7 @@ export default function App() {
 
   const [toastMsg, setToastMsg] = useState('');
   const [toastAction, setToastAction] = useState(null);
+  const [toastTone, setToastTone] = useState('default');
   const [dashboardRequestFocus, setDashboardRequestFocus] = useState({ id: '', nonce: 0 });
   const [saveError, setSaveError] = useState('');
   const toastTimer = useRef(null);
@@ -295,9 +315,10 @@ export default function App() {
 
   const toast = useCallback((msg, action = null) => {
     setToastMsg(msg);
-    setToastAction(action);
+    setToastAction(action?.label ? action : null);
+    setToastTone(action?.tone || 'default');
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => { setToastMsg(''); setToastAction(null); }, action ? 6500 : 2600);
+    toastTimer.current = setTimeout(() => { setToastMsg(''); setToastAction(null); setToastTone('default'); }, action?.label ? 6500 : 2600);
   }, []);
 
   const syncSharedCsvCache = async () => {
@@ -479,6 +500,34 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Carry disposal locks forward for records approved before this version added
+  // the explicit asset-level flag.
+  useEffect(() => {
+    const approvedByItem = new Map(lifecycleActions
+      .filter((action) => DISPOSITION_ACTION_TYPES.includes(action.type) && ['Approved', 'Completed'].includes(action.status))
+      .map((action) => [action.itemId, action]));
+    if (!approvedByItem.size) return;
+    setItems((current) => {
+      let changed = false;
+      const next = current.map((item) => {
+        const action = approvedByItem.get(item.id);
+        if (!action || (item.disposalApproved && item.borrowEligibility === 'blocked')) return item;
+        changed = true;
+        return {
+          ...item,
+          disposalApproved: true,
+          disposalApprovedAt: item.disposalApprovedAt || action.decidedAt || action.completedAt || action.requestedAt,
+          disposalApprovedBy: item.disposalApprovedBy || action.decidedBy || action.completedBy || 'Management',
+          disposalApprovalReference: item.disposalApprovalReference || action.id,
+          disposalApprovalType: item.disposalApprovalType || action.type,
+          disposalReason: item.disposalReason || action.justification || '',
+          borrowEligibility: 'blocked'
+        };
+      });
+      return changed ? next : current;
+    });
+  }, [lifecycleActions]);
+
   // ---- persist world on every mutation (skips the initial hydration write) ----
   useEffect(() => {
     if (!hydrated.current) return;
@@ -623,12 +672,12 @@ export default function App() {
     const result = stocktakeStateByItem.get(item.id);
     return result ? { ...item, stocktakeState: result.state, stocktakeRecordedAt: result.recordedAt, stocktakeSessionId: result.sessionId, stocktakeSessionTitle: result.sessionTitle, stocktakeNote: result.note, stocktakeScope: result.scope } : item;
   }), [items, stocktakeStateByItem]);
-  const activeItems = useMemo(() => displayItems.filter((item) => !item.archived), [displayItems]);
+  const activeItems = useMemo(() => displayItems.filter((item) => !item.archived && !(item.model === 'printer-toner' && item.serializedConsumable && Number(item.qty || 0) < 1)), [displayItems]);
   const staffVisibleItems = useMemo(() => isStaff
     ? activeItems.filter((item) => item.consumable || isBorrowingApproved(item, borrowCategoryAccess))
     : activeItems, [activeItems, borrowCategoryAccess, isStaff]);
   const onLoan = useMemo(() => activeItems.filter((i) => i.status === 'On loan'), [activeItems]);
-  const low = useMemo(() => activeItems.filter(isLowStock), [activeItems]);
+  const low = useMemo(() => activeItems.filter(needsStockAttention), [activeItems]);
   const pending = useMemo(() => requests.filter((r) => r.state === 'Pending'), [requests]);
   const pendingOrders = useMemo(() => orders.filter((o) => ['Pending', 'Partially received'].includes(o.status)), [orders]);
   const pendingRequisitions = useMemo(() => requests.filter((r) => r.type === 'Requisition' && r.state === 'Pending'), [requests]);
@@ -761,14 +810,40 @@ export default function App() {
   }, []);
   const openItem = useCallback((id) => {
     const requestedItem = items.find((item) => item.id === id);
+    const disposed = requestedItem?.disposalApproved || (requestedItem?.status === 'Retired' && requestedItem?.dispositionType);
+    if (disposed) {
+      toast(`Disposed asset — ${requestedItem.name} is locked from operational use`);
+    }
     if (isStaff && requestedItem && !requestedItem.consumable && !isBorrowingApproved(requestedItem, borrowCategoryAccess)) {
-      toast('This asset is not available in the staff borrowing catalogue');
+      if (!disposed) toast('This asset is not available in the staff borrowing catalogue');
       return;
     }
     setFilters((current) => current.query ? { ...current, query: '' } : current);
     setScreen('item');
     setSelectedId(id);
   }, [borrowCategoryAccess, isStaff, items]);
+
+  const addBarcodeToScannerSheet = useCallback((item) => {
+    if (!item?.id || !item?.tag) {
+      toast('This asset does not have a printable barcode yet');
+      return;
+    }
+    const duplicate = scannerLabelQueue.includes(item.id);
+    if (!duplicate && scannerLabelQueue.length >= 14) {
+      toast('The barcode sheet is full. Remove a label before adding another.');
+      return;
+    }
+    if (!duplicate) setScannerLabelQueue((current) => [...current, item.id]);
+    toast(duplicate ? 'This barcode is already in the Scanner Console print queue' : `${item.name} barcode sent to the Scanner Console print queue`, duplicate ? null : { tone: 'success' });
+  }, [scannerLabelQueue, toast]);
+
+  const openItemLifecycle = useCallback((itemId) => {
+    if (!itemId) return;
+    setFilters((current) => current.query ? { ...current, query: '' } : current);
+    setLifecycleFocus((current) => ({ itemId, nonce: current.nonce + 1 }));
+    setScreen('lifecycle');
+    setSelectedId(null);
+  }, []);
 
   const openDashboardSummary = useCallback((target) => {
     const destinations = { assets: 'inventory', inventory: 'inventory', loans: 'loans', alerts: 'alerts', requests: 'requests', orders: 'orders', placements: 'placements', reports: 'reports' };
@@ -967,6 +1042,51 @@ export default function App() {
     return formatMsbmAssetTag(code, number);
   };
 
+  const allocateAssetTags = (modelId, count, firstTag = '') => {
+    const total = Math.max(1, Number.parseInt(count, 10) || 1);
+    const code = assetTagCodeForModel(modelId);
+    const knownTags = [...items.map((item) => item.tag), ...reservedBarcodes.map((entry) => entry.tag)].filter(Boolean);
+    const usedSequences = new Set(knownTags.map(parseMsbmAssetTag).filter((parsed) => parsed?.code === code).map((parsed) => parsed.sequence));
+    const tags = firstTag ? [String(firstTag).trim().toUpperCase()] : [];
+    const firstParsed = parseMsbmAssetTag(firstTag);
+    if (firstParsed?.code === code) usedSequences.add(firstParsed.sequence);
+    let number = highestEstablishedSequence([...knownTags, firstTag], code) + 1;
+    while (tags.length < total) {
+      while (usedSequences.has(number)) number += 1;
+      tags.push(formatMsbmAssetTag(code, number));
+      usedSequences.add(number);
+      number += 1;
+    }
+    return tags;
+  };
+
+  // One physical toner cartridge must always have one inventory row and barcode.
+  // Upgrade older printer-linked toner rows that stored several cartridges under one tag.
+  useEffect(() => {
+    if (!items.some((item) => item.model === 'printer-toner' && item.consumable && !item.archived && Array.isArray(item.compatiblePrinterIds) && item.compatiblePrinterIds.length > 0 && Number(item.qty || 0) > 1)) return;
+    setItems((current) => {
+      const knownTags = [...current.map((item) => item.tag), ...reservedBarcodes.map((entry) => entry.tag)].filter(Boolean);
+      const nextUniqueTag = (modelId) => {
+        const code = assetTagCodeForModel(modelId);
+        const used = new Set(knownTags.map(parseMsbmAssetTag).filter((parsed) => parsed?.code === code).map((parsed) => parsed.sequence));
+        let number = highestEstablishedSequence(knownTags, code) + 1;
+        while (used.has(number)) number += 1;
+        const tag = formatMsbmAssetTag(code, number);
+        knownTags.push(tag);
+        return tag;
+      };
+      return current.flatMap((item) => {
+        if (item.model !== 'printer-toner' || !item.consumable || item.archived || !Array.isArray(item.compatiblePrinterIds) || !item.compatiblePrinterIds.length || Number(item.qty || 0) <= 1) return [item];
+        const count = Math.max(1, Number.parseInt(item.qty, 10) || 1);
+        const stamp = Date.now();
+        return [
+          { ...item, qty: 1, serializedConsumable: true, serializedAt: item.serializedAt || new Date().toISOString() },
+          ...Array.from({ length: count - 1 }, (_, index) => ({ ...item, id: `itm-toner-split-${stamp}-${index}-${Math.random().toString(36).slice(2, 7)}`, tag: nextUniqueTag(item.model), qty: 1, stockReceipts: [], serializedConsumable: true, splitFromItemId: item.id, createdAt: item.createdAt || new Date().toISOString(), serializedAt: new Date().toISOString() }))
+        ];
+      });
+    });
+  }, [items, reservedBarcodes]);
+
   const generateBlankBarcodes = (requestedCount, modelId) => {
     if (!canEdit) return [];
     const model = MODELS.find((entry) => entry.id === modelId);
@@ -1051,10 +1171,23 @@ export default function App() {
   const closeForm = () => { setFormOpen(false); setFormError(''); setPlacementSource(null); setPlacementProgress(null); };
   const onFormChange = (key, value) => {
     setForm((current) => {
+      if (key === 'compatiblePrinterIds') {
+        const compatiblePrinterIds = asArray(value);
+        const printer = items.find((entry) => entry.id === compatiblePrinterIds[0] && !entry.archived && !entry.consumable);
+        return { ...current, compatiblePrinterIds, ...(printer ? { location: printer.location, room: printer.room } : {}) };
+      }
       if (key === 'model' && formMode === 'add') {
         return { ...current, model: value, ...(current._autoTag !== false ? { tag: nextAssetTag(value) } : {}) };
       }
       if (key === 'tag' && formMode === 'add') return { ...current, tag: value, _autoTag: false };
+      if (key === 'usefulLifeYears') {
+        const expectedReplacementDate = expectedReplacementFrom(current.purchased, value);
+        return { ...current, usefulLifeYears: value, ...(expectedReplacementDate ? { expectedReplacementDate } : {}) };
+      }
+      if (key === 'purchased') {
+        const expectedReplacementDate = expectedReplacementFrom(value, current.usefulLifeYears);
+        return { ...current, purchased: value, ...(expectedReplacementDate ? { expectedReplacementDate } : {}) };
+      }
       return { ...current, [key]: value };
     });
     setFormError('');
@@ -1064,7 +1197,7 @@ export default function App() {
     setPlacementSource(placement.id);
     setPlacementProgress({ current: 1, total: placement.remainingQty });
     setFormMode('add'); setFormError('');
-    setForm({ model: placement.model, tag: nextAssetTag(placement.model), serial: '', _autoTag: true, location: placement.location, room: placement.room, qty: 1, min: original?.min || 0, condition: 'New', cost: placement.unitCost, supplier: placement.supplier, assignedTo: '', purchased: iso(today()), warranty: iso(new Date(today().getFullYear() + 3, today().getMonth(), today().getDate())), depreciationMethod: 'Straight-line', usefulLifeYears: 5, salvageValue: 0, expectedReplacementDate: iso(new Date(today().getFullYear() + 5, today().getMonth(), today().getDate())) });
+    setForm({ model: placement.model, tag: nextAssetTag(placement.model), serial: '', _autoTag: true, location: placement.location, room: placement.room, qty: 1, min: original?.min || 0, condition: 'New', cost: placement.unitCost, supplier: placement.supplier, assignedTo: '', purchased: iso(today()), warranty: iso(new Date(today().getFullYear() + 3, today().getMonth(), today().getDate())), unitOfMeasure: original?.unitOfMeasure || 'unit', batchNumber: '', expiryDate: '', stockCode: original?.stockCode || '', color: original?.color || '', compatiblePrinterIds: asArray(original?.compatiblePrinterIds), depreciationMethod: 'Straight-line', usefulLifeYears: 5, salvageValue: 0, expectedReplacementDate: iso(new Date(today().getFullYear() + 5, today().getMonth(), today().getDate())) });
     setFormOpen(true);
   };
 
@@ -1073,7 +1206,7 @@ export default function App() {
     if (!placement) return;
     const original = items.find((item) => item.id === placement.itemId);
     const placementModel = MODELS.find((model) => model.id === placement.model);
-    if (placementModel?.cons === 1) {
+    if (placementModel?.cons === 1 && !isPrinterSupplyModel(placementModel)) {
       setItems((current) => current.map((item) => item.id === original?.id ? { ...item, qty: Number(item.qty || 0) + placement.remainingQty, receivedOn: placement.receivedOn, receivedBy: placement.receivedBy, receiptSource: 'order' } : item));
       setPlacements((current) => current.map((entry) => entry.id === id ? { ...entry, remainingQty: 0, status: 'Placed', placedOn: iso(today()), placedBy: session.name } : entry));
       logAudit('Consumable stock placed', `${placement.name} — quantity ${placement.remainingQty}`);
@@ -1103,6 +1236,10 @@ export default function App() {
     };
     const sourcePlacement = placementSource ? pendingPlacements.find((entry) => entry.id === placementSource) : null;
     if (sourcePlacement) rec.qty = 1;
+    if (sourcePlacement && isPrinterSupplyModel(m) && rec.compatiblePrinterIds.length < 1) {
+      setFormError('Select the printer that will use this consumable before completing assignment.');
+      return;
+    }
     if (sourcePlacement && (rec.qty < 1 || rec.qty > sourcePlacement.remainingQty)) {
       setFormError('Quantity must be between 1 and ' + sourcePlacement.remainingQty + ' for this received order.');
       return;
@@ -1116,7 +1253,11 @@ export default function App() {
     } else {
       const id = 'itm' + Date.now();
       const createdAt = new Date().toISOString();
-      setItems((prev) => [{ id, status: 'In stock', purchased: iso(today()), loanCount: 0, borrower: null, due: null, since: null, createdAt, createdBy: session.name, ...rec, ...(sourcePlacement ? { sourcePlacementId: sourcePlacement.id } : { receivedOn: iso(today()), receivedBy: session.name, receivedCompany: rec.supplier, receiptSource: 'manual', invoiceRequired: true }) }, ...prev]);
+      const serializeToner = rec.model === 'printer-toner' && rec.consumable && rec.compatiblePrinterIds.length > 0 && !sourcePlacement;
+      const createdRecords = serializeToner
+        ? allocateAssetTags(rec.model, rec.qty, rec.tag).map((tag, index) => ({ id: `${id}-${index + 1}`, status: 'In stock', purchased: iso(today()), loanCount: 0, borrower: null, due: null, since: null, createdAt, createdBy: session.name, ...rec, tag, qty: 1, serializedConsumable: true, receivedOn: iso(today()), receivedBy: session.name, receivedCompany: rec.supplier, receiptSource: 'manual', invoiceRequired: true }))
+        : [{ id, status: 'In stock', purchased: iso(today()), loanCount: 0, borrower: null, due: null, since: null, createdAt, createdBy: session.name, ...rec, ...(sourcePlacement ? { sourcePlacementId: sourcePlacement.id, serializedConsumable: rec.model === 'printer-toner', receivedOn: sourcePlacement.receivedOn, receivedBy: sourcePlacement.receivedBy, receivedCompany: sourcePlacement.supplier, receiptSource: 'order', invoiceRequired: true } : { receivedOn: iso(today()), receivedBy: session.name, receivedCompany: rec.supplier, receiptSource: 'manual', invoiceRequired: true }) }];
+      setItems((prev) => [...createdRecords, ...prev]);
       logAudit('Asset created', `${rec.name} (${rec.tag})${rec.consumable ? ` — quantity ${rec.qty}` : ''}`);
       if (sourcePlacement) {
         const remainingQty = sourcePlacement.remainingQty - 1;
@@ -1140,7 +1281,7 @@ export default function App() {
         setScreen('inventory');
         setView('grid');
       }
-      toast(`${rec.consumable ? 'Consumable' : 'Asset'} added — ${rec.tag}`, { label: 'View item', onClick: () => { setToastMsg(''); setToastAction(null); openItem(id); } });
+      toast(serializeToner ? `${createdRecords.length} cartridge${createdRecords.length === 1 ? '' : 's'} added with individual asset tags` : `${rec.consumable ? 'Consumable' : 'Asset'} added — ${rec.tag}`, { label: 'View item', onClick: () => { setToastMsg(''); setToastAction(null); openItem(createdRecords[0].id); } });
     }
   };
   const deleteItem = () => {
@@ -1302,10 +1443,17 @@ export default function App() {
       department: String(draft.department || '').trim(), purpose: String(draft.purpose).trim(), notes: String(draft.notes || '').trim(),
       previousQty: onHand, remainingQty, unitCost: Number(item.cost || 0), usedAt: new Date().toISOString(), retainedUntil: new Date(Date.now() + 365 * 864e5).toISOString(), recordedBy: session.name, recordedByEmail: session.email
     };
-    setItems((current) => current.map((record) => record.id === item.id ? { ...record, qty: remainingQty, lastConsumedAt: entry.usedAt, lastConsumedBy: session.name } : record));
+    const retireUsedCartridge = item.model === 'printer-toner' && item.serializedConsumable && remainingQty === 0;
+    setItems((current) => current.map((record) => record.id === item.id ? {
+      ...record,
+      qty: remainingQty,
+      lastConsumedAt: entry.usedAt,
+      lastConsumedBy: session.name,
+      ...(retireUsedCartridge ? { archived: true, status: 'Retired', archivedAt: entry.usedAt, archivedBy: session.name, archiveReason: 'Toner cartridge used' } : {})
+    } : record));
     setConsumableUsage((current) => [entry, ...current]);
     logAudit('Consumable stock issued', `${item.name} (${item.tag}) — ${qty} ${entry.unitOfMeasure}; ${remainingQty} remaining; issued to ${entry.issuedTo}`);
-    toast(`${qty} ${entry.unitOfMeasure} issued — ${remainingQty} remaining`);
+    toast(retireUsedCartridge ? `${item.name} used and removed from active toner stock` : `${qty} ${entry.unitOfMeasure} issued — ${remainingQty} remaining`);
     return '';
   };
 
@@ -1316,6 +1464,20 @@ export default function App() {
     const qty = Number.parseInt(draft.qty, 10);
     if (!Number.isFinite(qty) || qty < 1) return 'Enter a quantity of at least 1.';
     if (!String(draft.notes || '').trim()) return 'Add a receiving note or reference for this stock movement.';
+    const linkedPrinterIds = Array.from(new Set([...(Array.isArray(item.compatiblePrinterIds) ? item.compatiblePrinterIds : []), draft.printerId].filter(Boolean)));
+    if (item.model === 'printer-toner' && linkedPrinterIds.length) {
+      const receivedAt = new Date().toISOString();
+      const tags = allocateAssetTags(item.model, qty);
+      const created = tags.map((tag, index) => {
+        const id = `itm-toner-${Date.now()}-${index + 1}-${Math.random().toString(36).slice(2, 6)}`;
+        const receipt = { id: `CON-RCV-${Date.now()}-${index + 1}`, itemId: id, itemName: item.name, itemTag: tag, qty: 1, previousQty: 0, resultingQty: 1, batchNumber: String(draft.batchNumber || '').trim(), notes: String(draft.notes).trim(), printerId: draft.printerId || linkedPrinterIds[0], printerName: String(draft.printerName || item.compatiblePrinterName || '').trim(), receivedAt, receivedBy: session.name, receivedByEmail: session.email, retainedUntil: new Date(Date.now() + 365 * 864e5).toISOString() };
+        return { ...item, id, tag, qty: 1, compatiblePrinterIds: linkedPrinterIds, stockReceipts: [receipt], lastReceivedAt: receivedAt, lastReceivedBy: session.name, createdAt: receivedAt, createdBy: session.name, createdByEmail: session.email, updatedAt: receivedAt, serializedConsumable: true, copiedFromItemId: item.id };
+      });
+      setItems((current) => [...created, ...current]);
+      logAudit('Individually tagged toner received', `${created.length} ${item.name} cartridge${created.length === 1 ? '' : 's'} created for ${draft.printerName || item.compatiblePrinterName || 'linked printer'} — ${created.map((record) => record.tag).join(', ')}`);
+      toast(`${created.length} new cartridge${created.length === 1 ? '' : 's'} added with unique asset tags`);
+      return { items: created };
+    }
     const previousQty = Math.max(0, Number(item.qty || 0));
     const receivedAt = new Date().toISOString();
     const receipt = {
@@ -1342,38 +1504,36 @@ export default function App() {
     const model = MODELS.find((entry) => entry.id === 'printer-toner');
     if (!model) return 'The printer toner equipment type is unavailable.';
     const createdAt = new Date().toISOString();
-    const id = `itm${Date.now()}`;
-    const tag = nextAssetTag(model.id);
+    const tags = allocateAssetTags(model.id, qty);
     const normalizedColor = String(color || 'Black').trim();
     const location = String(draft.storageLocation || printer.location || 'Storage room').trim();
     const room = String(draft.storageRoom || printer.room || 'Main storage').trim();
     const retainedUntil = new Date(Date.now() + 365 * 864e5).toISOString();
-    const resultingQty = mode === 'add' ? qty : 0;
-    const base = {
-      id, model: model.id, name: `${normalizedColor} ${model.name}`, category: model.cat, consumable: true, rank: model.rank,
-      tag, serial: '', status: 'In stock', location, room, qty: resultingQty, min: 1, condition: 'New', cost: Number(model.cost || 0), supplier: '', assignedTo: '',
+    const created = tags.map((tag, index) => ({
+      id: `itm-toner-${Date.now()}-${index + 1}-${Math.random().toString(36).slice(2, 6)}`, model: model.id, name: `${normalizedColor} ${model.name}`, category: model.cat, consumable: true, rank: model.rank,
+      tag, serial: '', status: 'In stock', location, room, qty: mode === 'add' ? 1 : 0, min: 1, condition: 'New', cost: Number(model.cost || 0), supplier: '', assignedTo: '',
       purchased: iso(today()), warranty: '', unitOfMeasure: 'cartridge', batchNumber: String(draft.batchNumber || '').trim(), stockCode: String(draft.stockCode || '').trim(),
       color: normalizedColor, compatiblePrinterIds: [printer.id], depreciationMethod: 'Straight-line', usefulLifeYears: 1, salvageValue: 0, expectedReplacementDate: '',
       compatiblePrinterName: printer.name, compatiblePrinterTag: printer.tag, compatiblePrinterModel: printer.modelNumber || printer.name,
       sourcePrinterId: printer.id, sourcePrinterName: printer.name, sourcePrinterTag: printer.tag,
       receivedOn: iso(today()), receivedBy: session.name, receivedCompany: '', receiptSource: 'printer quick workflow', invoiceRequired: false, loanCount: 0, borrower: null, due: null, since: null,
-      createdAt, createdBy: session.name, createdByEmail: session.email, updatedAt: createdAt
-    };
+      createdAt, createdBy: session.name, createdByEmail: session.email, updatedAt: createdAt, serializedConsumable: true
+    }));
     if (mode === 'add') {
-      const receipt = { id: `CON-RCV-${Date.now()}`, itemId: id, itemName: base.name, itemTag: tag, qty, previousQty: 0, resultingQty, batchNumber: base.batchNumber, notes: String(draft.notes).trim(), printerId: printer.id, printerName: printer.name, receivedAt: createdAt, receivedBy: session.name, receivedByEmail: session.email, retainedUntil };
-      base.stockReceipts = [receipt];
-      base.lastReceivedAt = createdAt;
-      base.lastReceivedBy = session.name;
+      created.forEach((record, index) => {
+        record.stockReceipts = [{ id: `CON-RCV-${Date.now()}-${index + 1}`, itemId: record.id, itemName: record.name, itemTag: record.tag, qty: 1, previousQty: 0, resultingQty: 1, batchNumber: record.batchNumber, notes: String(draft.notes).trim(), printerId: printer.id, printerName: printer.name, receivedAt: createdAt, receivedBy: session.name, receivedByEmail: session.email, retainedUntil }];
+        record.lastReceivedAt = createdAt;
+        record.lastReceivedBy = session.name;
+      });
     } else {
-      const usageEntry = { id: `CON-${Date.now()}`, itemId: id, itemName: base.name, itemTag: tag, category: base.category, qty, unitOfMeasure: base.unitOfMeasure, issuedTo: String(draft.issuedTo).trim(), department: String(draft.department || `${printer.location} · ${printer.room}`).trim(), purpose: String(draft.purpose).trim(), notes: String(draft.notes || '').trim(), previousQty: qty, remainingQty: 0, unitCost: 0, usedAt: createdAt, retainedUntil, recordedBy: session.name, recordedByEmail: session.email, untrackedOpeningUsage: true, printerId: printer.id };
-      base.lastConsumedAt = createdAt;
-      base.lastConsumedBy = session.name;
-      setConsumableUsage((current) => [usageEntry, ...current]);
+      const usageEntries = created.map((record, index) => ({ id: `CON-${Date.now()}-${index + 1}`, itemId: record.id, itemName: record.name, itemTag: record.tag, category: record.category, qty: 1, unitOfMeasure: record.unitOfMeasure, issuedTo: String(draft.issuedTo).trim(), department: String(draft.department || `${printer.location} · ${printer.room}`).trim(), purpose: String(draft.purpose).trim(), notes: String(draft.notes || '').trim(), previousQty: 1, remainingQty: 0, unitCost: 0, usedAt: createdAt, retainedUntil, recordedBy: session.name, recordedByEmail: session.email, untrackedOpeningUsage: true, printerId: printer.id }));
+      created.forEach((record) => { record.lastConsumedAt = createdAt; record.lastConsumedBy = session.name; record.archived = true; record.status = 'Retired'; record.archivedAt = createdAt; record.archivedBy = session.name; record.archiveReason = 'Untracked toner cartridge used'; });
+      setConsumableUsage((current) => [...usageEntries, ...current]);
     }
-    setItems((current) => [base, ...current]);
-    logAudit(mode === 'add' ? 'Printer toner record created with stock' : 'Untracked printer toner usage captured', `${base.name} (${tag}) — ${qty} ${base.unitOfMeasure}${mode === 'add' ? ' added' : ' installed'} for ${printer.name} (${printer.tag})`);
-    toast(mode === 'add' ? `${base.name} created — ${qty} available` : `${base.name} installation recorded — stock record created`);
-    return { item: base };
+    setItems((current) => [...created, ...current]);
+    logAudit(mode === 'add' ? 'Individually tagged printer toner received' : 'Untracked printer toner usage captured', `${created.length} ${created[0].name} cartridge${created.length === 1 ? '' : 's'} for ${printer.name} (${printer.tag}) — ${created.map((record) => record.tag).join(', ')}`);
+    toast(mode === 'add' ? `${created.length} cartridge${created.length === 1 ? '' : 's'} created with unique tags` : `${created.length} installation record${created.length === 1 ? '' : 's'} created`);
+    return { item: created[0], items: created };
   };
 
   const useConsumablesBulk = (lines, draft) => {
@@ -1401,7 +1561,18 @@ export default function App() {
       previousQty: onHand, remainingQty: onHand - qty, unitCost: Number(item.cost || 0), usedAt, retainedUntil, recordedBy: session.name, recordedByEmail: session.email
     }));
     const remainingById = new Map(entries.map((entry) => [entry.itemId, entry.remainingQty]));
-    setItems((current) => current.map((record) => remainingById.has(record.id) ? { ...record, qty: remainingById.get(record.id), lastConsumedAt: usedAt, lastConsumedBy: session.name } : record));
+    setItems((current) => current.map((record) => {
+      if (!remainingById.has(record.id)) return record;
+      const remainingQty = remainingById.get(record.id);
+      const retireUsedCartridge = record.model === 'printer-toner' && record.serializedConsumable && remainingQty === 0;
+      return {
+        ...record,
+        qty: remainingQty,
+        lastConsumedAt: usedAt,
+        lastConsumedBy: session.name,
+        ...(retireUsedCartridge ? { archived: true, status: 'Retired', archivedAt: usedAt, archivedBy: session.name, archiveReason: 'Toner cartridge used in batch issue' } : {})
+      };
+    }));
     setConsumableUsage((current) => [...entries, ...current]);
     logAudit('Consumable batch issued', `${cleanLines.length} stock records issued to ${String(draft.issuedTo).trim()} under ${batchId}`);
     toast(`${cleanLines.length} consumable records issued together`);
@@ -1442,7 +1613,8 @@ export default function App() {
     const receivedOn = iso(today());
     const receipt = { id: `RCV-${Date.now()}`, receivedOn, receivedAt: new Date().toISOString(), receivedBy: session.name, receivedQty, damagedQty, usableQty, note: receiveForm.note.trim() };
     const model = MODELS.find((entry) => entry.id === order.model);
-    if (usableQty > 0 && model?.cons === 1) {
+    const routeToAssignment = usableQty > 0 && isPrinterSupplyModel(model);
+    if (usableQty > 0 && model?.cons === 1 && !routeToAssignment) {
       setItems((current) => {
         const target = current.find((item) => !item.archived && item.model === order.model && item.location === order.location);
         if (target) return current.map((item) => item.id === target.id ? { ...item, qty: Number(item.qty || 0) + usableQty, receivedOn, receivedBy: session.name, receivedCompany: order.supplier, receiptSource: 'order' } : item);
@@ -1455,7 +1627,7 @@ export default function App() {
     setOrders((current) => current.map((entry) => entry.id === order.id ? { ...entry, status: remainingQty > 0 ? 'Partially received' : 'Received', remainingQty, receivedOn, receivedBy: session.name, damagedQty: Number(entry.damagedQty || 0) + damagedQty, receiptNotes: [...(entry.receiptNotes || []), receipt], invoiceRequired: true, invoiceGenerated: entry.invoiceGenerated || false } : entry));
     setReceiveOrderId(null);
     logAudit('Order received', `${order.name} — ${receivedQty} delivered, ${damagedQty} damaged, ${remainingQty} remaining`);
-    toast(model?.cons === 1 ? `Stock increased by ${usableQty}` : remainingQty > 0 ? 'Partial receipt recorded — Assignment has a new notification' : 'Order received — Assignment has a new notification');
+    toast(routeToAssignment ? `Toner received — ${usableQty} cartridge${usableQty === 1 ? '' : 's'} ready in Assignment` : model?.cons === 1 ? `Stock increased by ${usableQty}` : remainingQty > 0 ? 'Partial receipt recorded — Assignment has a new notification' : 'Order received — Assignment has a new notification');
   };
 
   // ---- checkout / check-in ----
@@ -1510,7 +1682,7 @@ export default function App() {
     }
     const finalizedAgreement = { ...agreement, item: { ...currentItem }, pending: false };
     setItems((prev) => prev.map((x) => (x.id === agreement.item.id
-      ? { ...x, status: 'On loan', borrower: agreement.borrower, issuedBy: agreement.loanedBy, expectedLoanDays: agreement.period, since: agreement.checkedOutOn, due: agreement.due, loanCount: Number(x.loanCount || 0) + 1, loanAgreement: finalizedAgreement }
+      ? { ...x, status: 'On loan', borrower: agreement.borrower, issuedBy: agreement.loanedBy, expectedLoanDays: agreement.period, since: agreement.checkedOutOn, due: agreement.due, loanCount: Number(x.loanCount || 0) + 1, loanAgreement: finalizedAgreement, loanExtensions: [] }
       : x)));
     setCoOpen(false);
     setCheckoutAgreement(null);
@@ -1518,6 +1690,36 @@ export default function App() {
     sendHelpdeskMail(`Loan checkout: ${currentItem.tag}`, `Asset: ${currentItem.name} (${currentItem.tag})\nBorrower: ${agreement.borrower}\nChecked out: ${agreement.checkedOutOn}\nDue: ${agreement.due}\nAuthorized by: ${agreement.loanedBy}`);
     toast('Checked out to ' + agreement.borrower);
     checkoutFinalizing.current = false;
+  };
+  const extendLoan = (id, extensionDraft) => {
+    if (!canLoanNow) return 'Your role cannot extend loans.';
+    const it = items.find((entry) => entry.id === id);
+    if (!it || it.status !== 'On loan') return 'This asset is no longer on loan.';
+    const newDue = String(extensionDraft?.due || '');
+    const reason = String(extensionDraft?.reason || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDue)) return 'Choose a valid new return date.';
+    if (!it.due || newDue <= it.due) return 'The new return date must be later than the current due date.';
+    if (!reason) return 'Enter a reason for the extension.';
+    const extendedAt = new Date().toISOString();
+    const extension = {
+      id: `LEX-${extendedAt.slice(0, 10).replaceAll('-', '')}-${String(Date.now()).slice(-5)}`,
+      previousDue: it.due,
+      newDue,
+      reason,
+      authorizedBy: session.name,
+      authorizedByEmail: session.email || '',
+      extendedAt
+    };
+    setItems((current) => current.map((entry) => entry.id === id ? {
+      ...entry,
+      due: newDue,
+      expectedLoanDays: Math.max(1, Math.round((new Date(`${newDue}T12:00:00`).getTime() - new Date(`${entry.since}T12:00:00`).getTime()) / 86400000)),
+      loanExtensions: [...asArray(entry.loanExtensions), extension],
+      loanAgreement: entry.loanAgreement ? { ...entry.loanAgreement, due: newDue, extensions: [...asArray(entry.loanAgreement.extensions), extension] } : entry.loanAgreement
+    } : entry));
+    logAudit('Loan extended', `${it.name} (${it.tag}) for ${it.borrower || 'borrower'}; ${it.due} to ${newDue}; authorized by ${session.name}; reason: ${reason}`);
+    toast(`Loan extended to ${newDue}`);
+    return '';
   };
   const openCheckIn = (id) => {
     const it = items.find((x) => x.id === id);
@@ -1544,13 +1746,13 @@ export default function App() {
         return;
       }
     }
-    setItems((prev) => prev.map((x) => (x.id === ciItem ? { ...x, status: nextStatus, condition: ciForm.condition, borrower: null, issuedBy: null, issuedByEmail: null, due: null, since: null } : x)));
+    setItems((prev) => prev.map((x) => (x.id === ciItem ? { ...x, status: nextStatus, condition: ciForm.condition, borrower: null, issuedBy: null, issuedByEmail: null, due: null, since: null, loanExtensions: [] } : x)));
     setHistory((prev) => [{
       id: 'h' + Date.now(), itemId: it.id, model: it.model, name: it.name, tag: it.tag,
       borrower: it.borrower, issuedBy: it.issuedBy || session.name, out: it.since, due: it.due, back: iso(today()),
       room: it.location + ' · ' + it.room, condition: ciForm.outcome,
       returnCondition: ciForm.condition, accessories: ciForm.accessories, disposition: ciForm.disposition,
-      returnNotes: (ciForm.notes || '').trim(), checkedInBy: session.name
+      returnNotes: (ciForm.notes || '').trim(), checkedInBy: session.name, loanExtensions: asArray(it.loanExtensions)
     }, ...prev]);
     setCiOpen(false);
     logAudit('Asset checked in', `${it.name} (${it.tag}) from ${it.borrower}; ${ciForm.disposition}`);
@@ -1564,21 +1766,23 @@ export default function App() {
   };
 
   // ---- requests ----
-  const requestBorrow = () => {
-    if (!sel) return;
-    if (sel.archived || sel.status !== 'In stock' || sel.consumable || Number(sel.qty) < 1 || !isBorrowingApproved(sel, borrowCategoryAccess)) {
+  const requestBorrow = (requestedId) => {
+    const itemId = typeof requestedId === 'string' ? requestedId : sel?.id;
+    const requestedItem = items.find((item) => item.id === itemId);
+    if (!requestedItem) return;
+    if (requestedItem.archived || requestedItem.status !== 'In stock' || requestedItem.consumable || Number(requestedItem.qty) < 1 || !isBorrowingApproved(requestedItem, borrowCategoryAccess)) {
       toast('This item is not eligible for borrowing');
       return;
     }
-    if (requests.some((request) => request.itemId === sel.id && request.byEmail === session.email && request.state === 'Pending')) {
+    if (requests.some((request) => request.itemId === requestedItem.id && request.byEmail === session.email && request.state === 'Pending')) {
       toast('You already have a pending request for this item');
       return;
     }
     setRequests((prev) => [{
-      id: 'rq' + Date.now(), itemId: sel.id, itemName: sel.name, itemTag: sel.tag, model: sel.model, by: session.name, byEmail: session.email,
-      statusSnapshot: sel.status, when: 'Requested just now', submittedOn: iso(today()), need: 'Awaiting IT approval', state: 'Pending', workflowUnread: screen !== 'requests'
+      id: 'rq' + Date.now(), itemId: requestedItem.id, itemName: requestedItem.name, itemTag: requestedItem.tag, model: requestedItem.model, by: session.name, byEmail: session.email,
+      statusSnapshot: requestedItem.status, when: 'Requested just now', submittedOn: iso(today()), need: 'Awaiting IT approval', state: 'Pending', workflowUnread: screen !== 'requests'
     }, ...prev]);
-    toast('Request sent for ' + sel.name);
+    toast('Request sent for ' + requestedItem.name, { tone: 'success' });
   };
   const approveRequest = (id) => {
     const r = requests.find((x) => x.id === id);
@@ -1601,7 +1805,7 @@ export default function App() {
     const checkedOutOn = iso(today());
     const due = iso(new Date(today().getTime() + LOAN_TERM_DAYS * 864e5));
     const agreement = { agreementNumber: `LOAN-${checkedOutOn.replaceAll('-', '')}-${String(Date.now()).slice(-5)}`, item: { ...item }, borrower: r.by, borrowerEmail: r.byEmail, loanedBy: session.name, period: LOAN_TERM_DAYS, checkedOutOn, due, pending: false, requestId: r.id };
-    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'On loan', borrower: r.by, borrowerEmail: r.byEmail, issuedBy: session.name, issuedByEmail: session.email, expectedLoanDays: LOAN_TERM_DAYS, since: checkedOutOn, due, loanCount: entry.loanCount + 1, loanAgreement: agreement } : entry));
+    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'On loan', borrower: r.by, borrowerEmail: r.byEmail, issuedBy: session.name, issuedByEmail: session.email, expectedLoanDays: LOAN_TERM_DAYS, since: checkedOutOn, due, loanCount: entry.loanCount + 1, loanAgreement: agreement, loanExtensions: [] } : entry));
     setRequests((prev) => prev.map((x) => (x.id === id ? { ...x, state: 'Approved', approvedBy: session.name, approvedOn: checkedOutOn, fulfilledOn: checkedOutOn } : x)));
     logAudit('Borrow request approved', `${item.name} (${item.tag}) checked out to ${r.by}; due ${due}`);
     toast('Approved and checked out to ' + r.by);
@@ -1994,6 +2198,19 @@ export default function App() {
     toast('Asset lifecycle settings updated');
   };
 
+  const updateAssetBorrowing = useCallback((itemId, allowed) => {
+    const item = items.find((entry) => entry.id === itemId);
+    if (!item || item.consumable || !isAdmin) return;
+    if (item.disposalApproved || (item.status === 'Retired' && item.dispositionType)) {
+      toast('Disposed assets cannot be made available for borrowing');
+      return;
+    }
+    const borrowEligibility = allowed ? 'allowed' : 'blocked';
+    setItems((current) => current.map((entry) => entry.id === itemId ? { ...entry, borrowEligibility } : entry));
+    logAudit('Asset borrowing permission updated', `${item.name} (${item.tag}) — ${allowed ? 'loanable' : 'restricted'}`);
+    toast(`${item.name} is now ${allowed ? 'available for borrowing' : 'restricted from borrowing'}`);
+  }, [isAdmin, items, logAudit, toast]);
+
   const createLifecycleAction = (draft) => {
     const item = items.find((entry) => entry.id === draft.itemId);
     if (!item || item.status === 'Retired') return null;
@@ -2030,11 +2247,25 @@ export default function App() {
 
   const decideLifecycleAction = (actionId, decision, note) => {
     if (!isAdmin) return false;
+    const selectedAction = lifecycleActions.find((action) => action.id === actionId && action.status === 'Pending approval');
+    if (!selectedAction) return false;
     const at = new Date().toISOString();
     setLifecycleActions((current) => current.map((action) => action.id === actionId && action.status === 'Pending approval' ? {
       ...action, status: decision, approvalNote: note.trim(), decidedAt: at, decidedBy: session.name,
       activity: [...(action.activity || []), { at, by: session.name, text: `${decision}${note.trim() ? ` — ${note.trim()}` : ''}` }]
     } : action));
+    if (decision === 'Approved' && DISPOSITION_ACTION_TYPES.includes(selectedAction.type)) {
+      setItems((current) => current.map((item) => item.id === selectedAction.itemId ? {
+        ...item,
+        disposalApproved: true,
+        disposalApprovedAt: at,
+        disposalApprovedBy: session.name,
+        disposalApprovalReference: selectedAction.id,
+        disposalApprovalType: selectedAction.type,
+        disposalReason: selectedAction.justification || '',
+        borrowEligibility: 'blocked'
+      } : item));
+    }
     logAudit('Lifecycle decision', `${actionId}: ${decision}${note.trim() ? ` — ${note.trim()}` : ''}`);
     toast(`Lifecycle request ${decision.toLowerCase()}`);
     return true;
@@ -2058,7 +2289,7 @@ export default function App() {
         lastTransferReference: action.id
       };
       return {
-        ...item, status: 'Retired', dispositionType: action.type, dispositionDate: action.effectiveDate || iso(today()),
+        ...item, status: 'Retired', disposalApproved: true, dispositionType: action.type, dispositionDate: action.effectiveDate || iso(today()),
         dispositionReference: action.id, dispositionRecipient: action.recipient || action.vendor || '',
         dispositionProceeds: Math.max(0, Number(action.proceeds) || 0), dispositionReason: action.justification
       };
@@ -2074,7 +2305,7 @@ export default function App() {
 
   const createRepairTicket = (draft, options = {}) => {
     const item = items.find((entry) => entry.id === draft.itemId);
-    if (!item || item.status === 'Retired' || (item.status === 'On loan' && !options.allowOnLoan)) {
+    if (!item || item.disposalApproved || item.status === 'Retired' || (item.status === 'On loan' && !options.allowOnLoan)) {
       toast('This asset must be checked in and active before entering repair');
       return null;
     }
@@ -2350,10 +2581,12 @@ export default function App() {
               />
             </div>}
             {availableScreens.includes('inventory') && <div className={`workspace-screen${screen === 'inventory' ? ' active' : ''}`} data-app-content-scroll="true" aria-hidden={screen !== 'inventory'}>
-              <Inventory resetKey={inventoryResetKey} items={(isStaff ? staffVisibleItems : displayItems).filter((item) => !item.consumable)} filters={filters} setFilters={setFilters} view={view} setView={setView} onOpenItem={openItem} canDelete={isAdmin} onDelete={permanentlyDeleteItem} />
+              {isStaff
+                ? <StaffBorrowing items={staffVisibleItems.filter((item) => !item.consumable)} requests={requests} session={session} initialQuery={filters.query} onOpenItem={openItem} onRequest={requestBorrow} onOpenRequests={() => goScreen('requests')} />
+                : <Inventory resetKey={inventoryResetKey} items={displayItems.filter((item) => !item.consumable)} filters={filters} setFilters={setFilters} view={view} setView={setView} onOpenItem={openItem} canDelete={isAdmin} onDelete={permanentlyDeleteItem} />}
             </div>}
             {availableScreens.includes('consumables') && <div className={`workspace-screen${screen === 'consumables' ? ' active' : ''}`} data-app-content-scroll="true" aria-hidden={screen !== 'consumables'}>
-              <Consumables items={displayItems} usage={consumableUsage} query={filters.query} canManage={canEdit} scannerAction={consumableScannerAction} onScannerActionHandled={() => setConsumableScannerAction(null)} onUse={useConsumable} onAddStock={addConsumableStock} onCreateTonerMovement={createPrinterTonerMovement} onBulkUse={useConsumablesBulk} onSetCompatibility={setConsumablePrinterCompatibility} onCreateInk={(color, printerId) => { openAdd('printer-toner'); setForm((current) => ({ ...current, color, compatiblePrinterIds: [printerId] })); }} onReorder={openReorder} onOpenItem={openItem} />
+              <Consumables items={displayItems} usage={consumableUsage} query={filters.query} canManage={canEdit} scannerAction={consumableScannerAction} onScannerActionHandled={() => setConsumableScannerAction(null)} onUse={useConsumable} onAddStock={addConsumableStock} onCreateTonerMovement={createPrinterTonerMovement} onBulkUse={useConsumablesBulk} onSetCompatibility={setConsumablePrinterCompatibility} onCreateInk={(color, printerId) => { openAdd('printer-toner'); setForm((current) => ({ ...current, color, compatiblePrinterIds: [printerId] })); }} onCreateSupply={(modelId, location) => { openAdd(modelId); setForm((current) => ({ ...current, location, room: '' })); }} onReorder={openReorder} onOpenItem={openItem} />
             </div>}
             {availableScreens.includes('stocktakes') && <WorkspacePanel name="stocktakes" activeScreen={screen}>
               <Stocktakes items={activeItems} sessions={stocktakes} sessionUser={session} canManage={canEdit} createSignal={topActionSignal.screen === 'stocktakes' ? topActionSignal.nonce : 0} onCreateSignalHandled={clearTopActionSignal}
@@ -2367,7 +2600,7 @@ export default function App() {
                 onCreateSchedule={createMaintenanceSchedule} onUpdateSchedule={updateMaintenanceSchedule} onAddEmailContact={addMaintenanceContact} onEmailPrepared={markMaintenanceEmailPrepared} onOpenItem={openItem} />
             </WorkspacePanel>}
             {availableScreens.includes('lifecycle') && <WorkspacePanel name="lifecycle" activeScreen={screen}>
-              <Lifecycle items={activeItems} actions={lifecycleActions} query={filters.query} canManage={canEdit} canApprove={isAdmin} createSignal={topActionSignal.screen === 'lifecycle' ? topActionSignal.nonce : 0} onCreateSignalHandled={clearTopActionSignal}
+              <Lifecycle items={activeItems} actions={lifecycleActions} query={filters.query} canManage={canEdit} canApprove={isAdmin} createSignal={topActionSignal.screen === 'lifecycle' ? topActionSignal.nonce : 0} onCreateSignalHandled={clearTopActionSignal} focusItemId={lifecycleFocus.itemId} focusSignal={lifecycleFocus.nonce}
                 onUpdateAsset={updateAssetLifecycle} onCreateAction={createLifecycleAction} onDecide={decideLifecycleAction}
                 onComplete={completeLifecycleAction} onOpenItem={openItem} />
             </WorkspacePanel>}
@@ -2385,24 +2618,28 @@ export default function App() {
                 canLoanNow={canLoanNow}
                 isStaff={isStaff}
                 borrowingApproved={isBorrowingApproved(sel, borrowCategoryAccess)}
-                canEdit={canEdit && !sel.archived}
-                canDelete={isAdmin && !sel.archived}
-                onBack={() => goScreen(sel.consumable ? 'consumables' : 'inventory')}
+                canEdit={canEdit && !sel.archived && !sel.disposalApproved && !(sel.status === 'Retired' && sel.dispositionType)}
+                canDelete={isAdmin && !sel.archived && !sel.disposalApproved && !(sel.status === 'Retired' && sel.dispositionType)}
+                onBack={() => navigationAvailability.back ? moveThroughNavigationHistory(-1) : goScreen(sel.consumable ? 'consumables' : 'inventory')}
                 onOpenCheckout={openCheckout}
                 onRequestBorrow={requestBorrow}
                 onOpenEdit={openEdit}
                 onDelete={() => permanentlyDeleteItem(sel.id)}
                 onGenerateInvoice={() => generateItemInvoice(sel.id)}
                 onReorder={() => openReorder(sel.id, Math.max(12, sel.min * 2))}
-                onOpenLifecycle={() => goScreen('lifecycle')}
+                onOpenLifecycle={() => openItemLifecycle(sel.id)}
                 pendingOrder={selectedPendingOrder}
                 pendingPlacement={selectedPendingPlacement}
                 onViewOrder={(id) => setOrderDetailsId(id)}
                 onOpenPlacements={() => goScreen('placements')}
+                onAddBarcodeToPrintSheet={addBarcodeToScannerSheet}
+                barcodeQueued={scannerLabelQueue.includes(sel.id)}
+                canToggleBorrowing={isAdmin && !sel.disposalApproved && !(sel.status === 'Retired' && sel.dispositionType)}
+                onToggleBorrowing={(allowed) => updateAssetBorrowing(sel.id, allowed)}
               /></WorkspacePanel>
             )}
             {availableScreens.includes('loans') && <WorkspacePanel name="loans" activeScreen={screen}>
-              <Loans items={activeItems} canReturn={canLoanNow} sender={session} emailContacts={loanEmailContacts} onAddEmailContact={addLoanContact} onEmailPrepared={markLoanEmailPrepared} onOpenItem={openItem} onCheckIn={openCheckIn} onPreviewAgreement={(agreement) => setCheckoutAgreement(agreement)} />
+              <Loans items={activeItems} canReturn={canLoanNow} sender={session} emailContacts={loanEmailContacts} onAddEmailContact={addLoanContact} onEmailPrepared={markLoanEmailPrepared} onOpenItem={openItem} onCheckIn={openCheckIn} onExtendLoan={extendLoan} onPreviewAgreement={(agreement) => setCheckoutAgreement(agreement)} />
             </WorkspacePanel>}
             {availableScreens.includes('history') && <WorkspacePanel name="history" activeScreen={screen}>
               <LoanHistory history={history} stillOutCount={onLoan.length} isStaff={isStaff} sessionName={session.name} query={filters.query} onOpenItem={openItem} />
@@ -2420,10 +2657,10 @@ export default function App() {
               <PlacementQueue placements={placements} items={activeItems} query={filters.query} canSetUp={canEdit} onSetUp={openPlacementAsset} onAcknowledge={(id) => acknowledgeWorkflowRecord('placements', id)} />
             </WorkspacePanel>}
             {availableScreens.includes('scan') && <WorkspacePanel name="scan" activeScreen={screen}>
-              <Scan items={staffVisibleItems} placements={placements} recentScans={recentScans} reservedBarcodes={reservedBarcodes} canManageLoans={canLoanNow} isActive={screen === 'scan'} onScan={doScan} onSimulate={simulateScan} onOpenItem={openItem} onOpenStocktakes={() => goScreen('stocktakes')} onGenerateBlankLabels={() => setBlankBarcodeOpen(true)} />
+              <Scan items={staffVisibleItems} placements={placements} recentScans={recentScans} reservedBarcodes={reservedBarcodes} canManageLoans={canLoanNow} isActive={screen === 'scan'} onScan={doScan} onSimulate={simulateScan} onOpenItem={openItem} onOpenStocktakes={() => goScreen('stocktakes')} onGenerateBlankLabels={() => setBlankBarcodeOpen(true)} labelQueueIds={scannerLabelQueue} onLabelQueueChange={setScannerLabelQueue} labelStudioFocusSignal={scannerLabelFocusSignal} />
             </WorkspacePanel>}
             {availableScreens.includes('reports') && <WorkspacePanel name="reports" activeScreen={screen}>
-              <Reports items={items} history={history} tickets={repairTickets} orders={orders} procurementRecords={procurementRecords} />
+              <Reports items={items} history={history} tickets={repairTickets} orders={orders} procurementRecords={procurementRecords} consumableUsage={consumableUsage} lifecycleActions={lifecycleActions} />
             </WorkspacePanel>}
             {availableScreens.includes('settings') && <WorkspacePanel name="settings" activeScreen={screen}><Settings isAdmin={isAdmin} accounts={accounts} userState={userState} navConfig={navOverrides} auditEntries={auditLog} importRuns={importRuns} procurementRecords={procurementRecords} vendors={approvedVendors} approvalContacts={approvalContacts} items={items} orders={orders} borrowCategoryAccess={borrowCategoryAccess} accountStorage={cloudSession ? 'Supabase secured' : 'Demo data stored locally'} onImport={importCsvData} onSaveVendor={saveApprovedVendor} onToggleVendor={toggleApprovedVendor} onSaveApprovalContact={saveApprovalContact} onToggleApprovalContact={toggleApprovalContact} onBorrowCategoryChange={setBorrowCategoryApproval} onAccessChange={updateRoleAccess} onToggle={toggleUser} onUpdateProfile={updateUserProfile} onCreateAccount={createUserAccount} onResetPassword={resetAccountPassword} /></WorkspacePanel>}
             </>}
@@ -2506,7 +2743,7 @@ export default function App() {
         onClose={closeCheckIn}
       />}
       {myProfileOpen && <MyProfileModal account={session} onAvatarChange={updateOwnAvatar} onClose={() => setMyProfileOpen(false)} />}
-      <Toast message={toastMsg} action={toastAction} />
+      <Toast message={toastMsg} action={toastAction} tone={toastTone} />
     </div>
   );
 }

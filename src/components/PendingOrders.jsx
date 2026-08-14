@@ -50,7 +50,7 @@ export default function PendingOrders({ orders, query, canReceive, onOpenItem, o
       return <article key={order.id} className="order-card" data-late={late ? 'true' : 'false'} data-workflow-unread={order.workflowUnread ? 'true' : undefined}>
         <header>
           <button type="button" className="order-item-link" onClick={() => review(() => onOpenItem(order.itemId))}>
-            <span style={thumbStyle(order.model, 48, 10)} />
+            <span style={thumbStyle(order, 48, 10)} />
             <span><strong>{order.name}{order.workflowUnread && <i className="workflow-item-dot" title="New workflow item" />}</strong><small>{order.tag}</small><i>{order.location} · {order.room}</i></span>
           </button>
           <span className="order-status" data-status={order.status}>{late ? 'Overdue' : order.status}</span>

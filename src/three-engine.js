@@ -199,6 +199,10 @@ const detailStage = makeStage(900, 620, true);
 
 const cards = new Map();   // canvas -> entry
 const details = new Map(); // container -> entry
+const detailPixelRatio = Math.min(2, Math.max(1, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1));
+const detailResizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+  for (const entry of entries) Inv3D.resizeDetail(entry.target);
+});
 
 let lastCardFrame = 0;
 const CARD_FRAME_INTERVAL = 1000 / 60;
@@ -234,7 +238,7 @@ function frame(now) {
 
   const ds = detailStage;
   for (const [el, e] of details) {
-    if (!el.isConnected) { details.delete(el); continue; }
+    if (!el.isConnected) { details.delete(el); detailResizeObserver?.unobserve(el); continue; }
     if (el.closest('.workspace-screen[aria-hidden="true"]')) continue;
     if (!e.pivot) continue;
     const frameInterval = 1000 / e.fps;
@@ -277,14 +281,20 @@ const io = new IntersectionObserver(entries => {
 
 function attachDetailControls(el, e) {
   let dragging = false, px = 0, py = 0;
-  el.addEventListener('pointerdown', ev => { dragging = true; px = ev.clientX; py = ev.clientY; e.spin = false; el.setPointerCapture(ev.pointerId); });
+  el.addEventListener('pointerdown', ev => {
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    ev.preventDefault();
+    dragging = true; px = ev.clientX; py = ev.clientY; e.spin = false;
+    el.style.cursor = 'grabbing';
+    el.setPointerCapture(ev.pointerId);
+  });
   el.addEventListener('pointermove', ev => {
     if (!dragging) return;
     e.yaw += (ev.clientX - px) * 0.01;
     e.pitch = Math.max(-1.2, Math.min(1.2, e.pitch + (ev.clientY - py) * 0.008));
     px = ev.clientX; py = ev.clientY;
   });
-  const stop = () => { dragging = false; };
+  const stop = () => { dragging = false; el.style.cursor = 'grab'; };
   el.addEventListener('pointerup', stop);
   el.addEventListener('pointercancel', stop);
   el.addEventListener('wheel', ev => { ev.preventDefault(); e.zoom = Math.max(0.55, Math.min(2.4, e.zoom * (ev.deltaY > 0 ? 0.92 : 1.08))); }, { passive: false });
@@ -345,6 +355,7 @@ export const Inv3D = {
       };
       details.set(el, e);
       Inv3D.resizeDetail(el);
+      detailResizeObserver?.observe(el);
       if (interactive && !e.bound) { attachDetailControls(el, e); e.bound = true; }
       loadModel(id).then(src => { if (src && details.get(el) === e) e.pivot = fitted(src, scale); });
     });
@@ -352,8 +363,11 @@ export const Inv3D = {
   resizeDetail(el) {
     const e = details.get(el); if (!e) return;
     const r = el.getBoundingClientRect();
-    const w = Math.max(320, Math.round(Math.min(r.width, 900)));
-    const h = Math.max(240, Math.round(Math.min(r.height, 620)));
+    const cssWidth = Math.max(320, r.width);
+    const cssHeight = Math.max(240, r.height);
+    const scale = Math.min(detailPixelRatio, 1800 / cssWidth, 1240 / cssHeight);
+    const w = Math.round(cssWidth * scale);
+    const h = Math.round(cssHeight * scale);
     if (e.canvas.width !== w || e.canvas.height !== h) { e.canvas.width = w; e.canvas.height = h; }
   },
   resetDetail() { for (const e of details.values()) { e.yaw = 0.6; e.pitch = -0.18; e.zoom = 1; e.spin = true; } },

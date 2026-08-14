@@ -4,28 +4,49 @@ import { IconLogout } from '../icons.jsx';
 import { ProfileAvatar } from './ProfileAvatar.jsx';
 
 const NAV_ICON_PATHS = {
-  dashboard: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
-  inventory: 'm4 7 8-4 8 4-8 4zM4 7v10l8 4 8-4V7M12 11v10',
-  consumables: 'M12 3s6 6.2 6 11a6 6 0 0 1-12 0c0-4.8 6-11 6-11zM9 15c.5 1.3 1.5 2 3 2',
-  stocktakes: 'M5 4h14v16H5zM8 9l2 2 4-4M8 15h8',
-  maintenance: 'M14.5 6.5a4 4 0 0 0-5 5L4 17l3 3 5.5-5.5a4 4 0 0 0 5-5l-3 1-2-2z',
-  lifecycle: 'M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6',
-  disposal: 'M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5',
-  loans: 'M5 12h14M14 7l5 5-5 5M5 5v14',
-  history: 'M12 4a8 8 0 1 1-7.4 5M4 4v5h5M12 8v5l3 2',
-  requests: 'M8 4h8M9 3v3h6V3M6 5h12v16H6zM9 11h6M9 15h6',
-  alerts: 'm12 4 9 16H3zM12 9v4M12 17h.01',
-  orders: 'M4 5h2l2 10h9l2-7H7M10 19h.01M17 19h.01',
-  placements: 'M12 21s6-5.6 6-11a6 6 0 1 0-12 0c0 5.4 6 11 6 11zM12 8v4M10 10h4',
-  scan: 'M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4M7 12h10',
-  imports: 'M12 3v12M8 11l4 4 4-4M5 19h14',
-  reports: 'M5 20V10h4v10M10 20V4h4v16M15 20v-7h4v7M3 20h18',
-  users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 21v-2a6 6 0 0 1 12 0v2M16 4a4 4 0 0 1 0 7M17 15a6 6 0 0 1 4 6',
-  settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM19 12l2-1-2-4-2 .5-2-2L15 3h-6l-.5 2.5-2 2L4 7l-2 4 2 1v3l-2 1 2 4 2-.5 2 2L9 21h6l.5-2.5 2-2 2 .5 2-4-2-1z'
+  dashboard: 'M4.5 3.5h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zM14.5 3.5h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zM4.5 13.5h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zM14.5 13.5h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z',
+  inventory: 'm3.5 7 8.5-4.5L20.5 7 12 11.5zM3.5 7v10L12 21.5l8.5-4.5V7M12 11.5v10',
+  consumables: 'M12 2.8S18.4 9.2 18.4 14a6.4 6.4 0 0 1-12.8 0C5.6 9.2 12 2.8 12 2.8z',
+  stocktakes: 'M6 3.5h12a1 1 0 0 1 1 1v16H5v-16a1 1 0 0 1 1-1zM9 3.5V2h6v1.5M8 9.5l2 2 4-4M8 16h8',
+  maintenance: 'M14.5 5.2a4.1 4.1 0 0 0-5 5.2l-5.8 5.8a1.45 1.45 0 0 0 0 2.05l2.05 2.05a1.45 1.45 0 0 0 2.05 0l5.8-5.8a4.1 4.1 0 0 0 5.2-5l-2.7 2.7-2.35-.6-.6-2.35z',
+  lifecycle: 'M20 7v5h-5M4 17v-5h5M6.2 8.5A7 7 0 0 1 18.7 7M17.8 15.5A7 7 0 0 1 5.3 17',
+  disposal: 'M4 6.5h16M9 6.5V3.8h6v2.7M6.5 6.5l.8 14h9.4l.8-14M10 10.5v6M14 10.5v6',
+  loans: 'M3.5 12h16M14.5 6.5 20 12l-5.5 5.5M5.5 4.5v15',
+  history: 'M12 3.5a8.5 8.5 0 1 1-7.8 5.1M3.5 3.5v5.8h5.8M12 7.5v5l3.5 2',
+  requests: 'M7 4.5h10a1 1 0 0 1 1 1v15H6v-15a1 1 0 0 1 1-1zM9 4.5V2.8h6v1.7M9 10h6M9 14h6M9 18h4',
+  alerts: 'm12 3 9.3 17H2.7zM12 8.5v5M12 17.2v.1',
+  orders: 'M3 4.5h2.5l2.2 10.2h9.8l2.2-7.2H6.2M9.5 19.5h.1M17 19.5h.1',
+  placements: 'M12 21.5s6.5-5.8 6.5-11.3a6.5 6.5 0 1 0-13 0C5.5 15.7 12 21.5 12 21.5zM12 7.3v5.8M9.1 10.2h5.8',
+  scan: 'M3.5 9V5.5a2 2 0 0 1 2-2H9M15 3.5h3.5a2 2 0 0 1 2 2V9M20.5 15v3.5a2 2 0 0 1-2 2H15M9 20.5H5.5a2 2 0 0 1-2-2V15M7.5 12h9',
+  imports: 'M12 3v12M7.8 10.8 12 15l4.2-4.2M4.5 20h15M6 17.5v2.5M18 17.5v2.5',
+  reports: 'M4 20.5V11h4v9.5M10 20.5V4h4v16.5M16 20.5v-7h4v7M2.5 20.5h19',
+  users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2.5 21v-2a6.5 6.5 0 0 1 13 0v2M16 4a4 4 0 0 1 0 7M17 15a6.5 6.5 0 0 1 4.5 6',
+  settings: 'M9.5 3.3h5l.55 2.05c.65.22 1.25.57 1.78 1.02l2.02-.57 2.5 4.34-1.5 1.48c.13.68.13 1.38 0 2.06l1.5 1.48-2.5 4.34-2.02-.57c-.53.45-1.13.8-1.78 1.02L14.5 22h-5l-.55-2.05a8 8 0 0 1-1.78-1.02l-2.02.57-2.5-4.34 1.5-1.48a5.5 5.5 0 0 1 0-2.06l-1.5-1.48 2.5-4.34 2.02.57a8 8 0 0 1 1.78-1.02z'
+};
+
+const NAV_ICON_DETAILS = {
+  dashboard: 'M6.5 7h1.5M16.5 7H18M6.5 17H8M16.5 17H18',
+  inventory: 'm7.8 5 8.4 4.5M6.8 14.2l2.2 1.2M15 16.2l2.2-1.2',
+  consumables: 'M9 14.4a3.2 3.2 0 0 0 5.1 2.6M10 10.3c.7-1.4 2-3 2-3',
+  stocktakes: 'M8 15.8h3M13 11h3',
+  maintenance: 'm5.25 16.65 2.1 2.1M11.2 12.8l1.95 1.95M16.1 7.9l1.75-1.75',
+  lifecycle: 'M12 7.3v4.9l3 1.8M20 7h-2.8M4 17h2.8',
+  disposal: 'M8.5 6.5h7M9 20.5h6',
+  loans: 'M8.2 9.2 5.5 12l2.7 2.8M5.5 12H9',
+  history: 'M6.5 5.8 4.2 8.6M17.2 18.2l1.4-1.7',
+  requests: 'M9 7h6M9 12h1M9 16h1',
+  alerts: 'M8.5 19.8h7M10 5.8h4',
+  orders: 'M9 10h7M10.2 12.5h5',
+  placements: 'M9.3 16.7h5.4M12 5.6v1.7',
+  scan: 'M9.5 8.5v7M12 8.5v7M14.5 8.5v7',
+  imports: 'M8 6.5h8M9.5 18h5',
+  reports: 'M5.5 8.5h1M11.5 7h1M17.5 17h1',
+  users: 'M5.8 8.2h6.4M4.8 17.2h8.4M18 8h2',
+  settings: 'M12 8.7a3.3 3.3 0 1 0 0 6.6 3.3 3.3 0 0 0 0-6.6zM12 11.2a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6z'
 };
 
 function NavIcon({ screen }) {
-  return <svg className="app-sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d={NAV_ICON_PATHS[screen] || NAV_ICON_PATHS.inventory} /></svg>;
+  return <svg className="app-sidebar-icon" viewBox="0 0 24 24" aria-hidden="true"><path className="app-sidebar-icon-primary" d={NAV_ICON_PATHS[screen] || NAV_ICON_PATHS.inventory} /><path className="app-sidebar-icon-detail" d={NAV_ICON_DETAILS[screen] || NAV_ICON_DETAILS.inventory} /></svg>;
 }
 
 const loadCollapsed = () => {
@@ -53,7 +74,7 @@ export default function Sidebar({ role, navItems, screen, itemSection = 'invento
           <span className="app-sidebar-brand-label" style={{ fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: '#7b8794' }}>IT Inventory System</span>
         </div>
         <button type="button" className="app-sidebar-collapse" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d={collapsed ? 'm9 6 6 6-6 6' : 'm15 6-6 6 6 6'} /></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d={collapsed ? 'M4 4h16v16H4zM9 4v16m4-12 4 4-4 4' : 'm15 6-6 6 6 6'} /></svg>
         </button>
       </div>
 

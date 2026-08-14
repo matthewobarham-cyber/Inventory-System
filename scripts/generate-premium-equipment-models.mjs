@@ -1006,6 +1006,102 @@ function buildPresentationClicker() {
   return g;
 }
 
+function buildPrinterDrumUnit() {
+  const g = new THREE.Group(); g.name = 'Professional printer photoconductor drum unit';
+  const drum = mat(0x2f9c92, .18, .64);
+  box(g, [1.95, .38, .72], graphite, [0, .39, 0], null, .08, 'Drum cartridge chassis');
+  box(g, [1.65, .3, .12], black, [0, .35, .36], null, .035, 'Drum aperture frame');
+  cylinder(g, .25, 1.58, drum, [0, .37, .42], [0, 0, Math.PI / 2], 48, 'Photoconductor drum');
+  cylinder(g, .12, 1.72, rubber, [0, .68, .08], [0, 0, Math.PI / 2], 36, 'Primary charge roller');
+  for (const x of [-.91, .91]) {
+    cylinder(g, .31, .1, graphite, [x, .39, .42], [0, 0, Math.PI / 2], 32, 'Drum bearing');
+    cylinder(g, .19, .12, x > 0 ? gold : black, [x * 1.02, .39, .42], [0, 0, Math.PI / 2], 18, 'Drive gear');
+  }
+  box(g, [.72, .13, .16], aluminium, [0, .82, -.08], null, .045, 'Removal handle');
+  for (let contact = 0; contact < 5; contact += 1) box(g, [.035, .06, .12], gold, [-.18 + contact * .09, .31, -.4], null, .005, 'Electrical contact');
+  return g;
+}
+
+function buildPrinterFuserUnit() {
+  const g = new THREE.Group(); g.name = 'Professional printer fuser assembly';
+  const heatRoller = mat(0xb97531, .24, .58);
+  box(g, [2.15, .48, .92], graphite, [0, .42, 0], null, .09, 'Fuser chassis');
+  box(g, [1.82, .16, .16], black, [0, .72, -.12], null, .035, 'Paper guide');
+  cylinder(g, .19, 1.72, heatRoller, [0, .48, .24], [0, 0, Math.PI / 2], 48, 'Heated fuser roller');
+  cylinder(g, .17, 1.72, rubber, [0, .24, .24], [0, 0, Math.PI / 2], 48, 'Pressure roller');
+  for (const x of [-.94, .94]) {
+    box(g, [.24, .62, .72], graphite, [x, .42, 0], null, .07, 'Fuser end housing');
+    cylinder(g, .24, .12, x > 0 ? gold : black, [x * 1.04, .48, .24], [0, 0, Math.PI / 2], 18, 'Fuser drive gear');
+  }
+  box(g, [.82, .12, .2], aluminium, [0, .82, -.18], null, .04, 'Heat-safe removal handle');
+  box(g, [.48, .2, .035], mat(0xd0a52b, .42), [.48, .48, .475], null, .012, 'Hot surface warning plate');
+  for (let vent = 0; vent < 10; vent += 1) box(g, [.06, .035, .32], aluminium, [-.54 + vent * .12, .68, -.22], null, .006, 'Heat vent');
+  return g;
+}
+
+function buildPrinterImagingUnit() {
+  const g = new THREE.Group(); g.name = 'Professional printer imaging unit';
+  const photoDrum = mat(0x329b91, .16, .62);
+  box(g, [2.18, .68, .82], graphite, [0, .48, 0], null, .1, 'Imaging unit housing');
+  box(g, [1.82, .26, .13], black, [0, .3, .43], null, .035, 'Imaging aperture');
+  cylinder(g, .27, 1.72, photoDrum, [0, .34, .48], [0, 0, Math.PI / 2], 48, 'OPC imaging drum');
+  cylinder(g, .12, 1.6, rubber, [0, .66, .32], [0, 0, Math.PI / 2], 36, 'Developer roller');
+  box(g, [1.45, .22, .34], black, [0, .78, -.08], null, .07, 'Developer reservoir');
+  box(g, [.78, .14, .18], aluminium, [0, 1.0, -.08], null, .05, 'Lift handle');
+  for (const x of [-.98, .98]) {
+    cylinder(g, .3, .12, graphite, [x, .34, .48], [0, 0, Math.PI / 2], 32, 'Drum end cap');
+    if (x > 0) for (const radius of [.22, .15]) cylinder(g, radius, .06, gold, [1.08, .34, .48], [0, 0, Math.PI / 2], 16, 'Drive coupling');
+  }
+  for (let contact = 0; contact < 6; contact += 1) box(g, [.04, .08, .14], gold, [-.24 + contact * .095, .45, -.43], null, .005, 'Imaging contact');
+  return g;
+}
+
+function buildPrinterPaperReam() {
+  const g = new THREE.Group(); g.name = 'Wrapped 500-sheet printer paper ream';
+  const paper = mat(0xf4f1e8, .78, .01);
+  const wrapper = mat(0xe8ecee, .48, .04);
+  box(g, [1.55, .55, 1.12], wrapper, [0, .36, 0], null, .055, 'Paper ream wrapper');
+  for (let sheet = 0; sheet < 12; sheet += 1) box(g, [1.47, .012, 1.04], paper, [0, .105 + sheet * .013, 0], null, .006, 'Visible paper edge');
+  box(g, [.82, .02, .66], navy, [0, .648, 0], null, .035, 'MSBM paper label');
+  box(g, [.57, .012, .09], mat(0xffffff, .7), [0, .664, -.1], null, .01, 'A4 copy paper mark');
+  for (let line = 0; line < 3; line += 1) box(g, [.42 - line * .06, .012, .025], cyan, [0, .664, .04 + line * .055], null, .004, 'Paper specification');
+  for (const x of [-.78, .78]) box(g, [.025, .47, .96], silver, [x, .36, 0], null, .005, 'Wrapper seam');
+  return g;
+}
+
+function buildPrinterStapleKit() {
+  const g = new THREE.Group(); g.name = 'Professional printer finisher staple kit';
+  box(g, [1.64, .48, .92], graphite, [0, .36, 0], null, .09, 'Staple cartridge housing');
+  box(g, [1.34, .16, .62], black, [0, .64, 0], null, .045, 'Sliding cartridge cover');
+  box(g, [.95, .13, .5], aluminium, [0, .74, 0], null, .035, 'Staple magazine');
+  for (let staple = 0; staple < 18; staple += 1) {
+    const x = -.4 + staple * .047;
+    rod(g, [x, .8, -.12], [x, .8, .12], .009, silver);
+    rod(g, [x, .8, -.12], [x, .73, -.12], .009, silver);
+    rod(g, [x, .8, .12], [x, .73, .12], .009, silver);
+  }
+  box(g, [.32, .22, .55], navy, [.7, .42, 0], null, .055, 'Release latch');
+  box(g, [.08, .09, .32], cyan, [.89, .42, 0], null, .02, 'Latch indicator');
+  box(g, [.62, .1, .16], aluminium, [-.28, .16, .42], null, .035, 'Insertion rail');
+  return g;
+}
+
+function buildPrinterTransferBelt() {
+  const g = new THREE.Group(); g.name = 'Professional printer image transfer belt assembly';
+  const belt = mat(0x182027, .18, .28);
+  box(g, [2.2, .34, 1.04], graphite, [0, .27, 0], null, .08, 'Transfer belt chassis');
+  box(g, [1.82, .08, .82], belt, [0, .49, 0], null, .06, 'Electrostatic transfer belt');
+  for (const z of [-.39, .39]) cylinder(g, .16, 1.84, rubber, [0, .49, z], [0, 0, Math.PI / 2], 40, 'Transfer belt roller');
+  for (const x of [-1.02, 1.02]) {
+    box(g, [.22, .48, .98], graphite, [x, .3, 0], null, .06, 'Belt end housing');
+    cylinder(g, .18, .1, x > 0 ? gold : black, [x * 1.08, .49, .39], [0, 0, Math.PI / 2], 18, 'Belt drive gear');
+  }
+  box(g, [.78, .12, .2], aluminium, [0, .68, -.36], null, .04, 'Transfer belt handle');
+  box(g, [.28, .08, .14], cyan, [.58, .55, .42], null, .025, 'Installation marker');
+  for (let contact = 0; contact < 5; contact += 1) box(g, [.035, .07, .1], gold, [-.2 + contact * .1, .22, -.53], null, .005, 'Transfer contact');
+  return g;
+}
+
 function buildFiberPatchCable() {
   const g=new THREE.Group(); g.name='Premium duplex LC fiber optic patch cable';
   const aqua=mat(0x25a9b7,.38,.08);
@@ -1144,18 +1240,56 @@ function buildSsd() {
 }
 
 function buildStandingFan() {
-  const g=new THREE.Group(); g.name='Premium oscillating pedestal fan';
-  cylinder(g,.7,.12,graphite,[0,.08,0],null,36,'Weighted fan base');
-  cylinder(g,.13,.95,aluminium,[0,.6,0],null,24,'Telescopic pedestal');
-  cylinder(g,.09,.78,silver,[0,1.42,0],null,22,'Height adjustment pole');
-  box(g,[.35,.25,.35],graphite,[0,1.82,-.14],null,.08,'Oscillation motor');
-  cylinder(g,.22,.32,graphite,[0,1.84,0],[Math.PI/2,0,0],32,'Fan motor hub');
-  for(let blade=0;blade<5;blade++) {
-    const angle=blade*Math.PI*2/5; const part=box(g,[.7,.045,.24],mat(0x547c90,.28,.25),[Math.cos(angle)*.36,1.84+Math.sin(angle)*.36,.14],[0,0,angle+.35],.11,'Aerodynamic fan blade'); part.scale.x=1.15;
+  const g = new THREE.Group(); g.name = 'Premium oscillating pedestal fan';
+  const fanY = 1.83;
+  const grille = mat(0x26343d, .35, .62);
+  const bladeMaterial = mat(0x315f78, .24, .34);
+
+  cylinder(g, .68, .12, graphite, [0, .08, 0], null, 48, 'Weighted fan base');
+  cylinder(g, .54, .035, rubber, [0, .012, 0], null, 48, 'Non-slip base pad');
+  cylinder(g, .13, .92, graphite, [0, .58, 0], null, 32, 'Lower pedestal');
+  cylinder(g, .085, .68, silver, [0, 1.31, 0], null, 28, 'Telescopic height pole');
+  cylinder(g, .16, .11, graphite, [0, 1.02, 0], null, 32, 'Height adjustment collar');
+  box(g, [.42, .22, .3], graphite, [0, 1.73, -.22], null, .09, 'Oscillation motor housing');
+  rod(g, [0, 1.58, 0], [0, 1.73, -.17], .07, graphite);
+
+  // The blade plane, motor and guards are deliberately separated in depth so
+  // the head remains legible instead of collapsing into intersecting geometry.
+  cylinder(g, .2, .34, graphite, [0, fanY, -.06], [Math.PI / 2, 0, 0], 40, 'Fan motor hub');
+  cylinder(g, .145, .12, aluminium, [0, fanY, .12], [Math.PI / 2, 0, 0], 36, 'Blade boss');
+
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(.12, -.07);
+  bladeShape.bezierCurveTo(.27, -.18, .58, -.27, .68, -.08);
+  bladeShape.bezierCurveTo(.75, .08, .62, .26, .43, .25);
+  bladeShape.bezierCurveTo(.29, .23, .19, .13, .12, .07);
+  bladeShape.lineTo(.12, -.07);
+  const bladeGeometry = new THREE.ExtrudeGeometry(bladeShape, {
+    depth: .045,
+    bevelEnabled: true,
+    bevelSegments: 2,
+    bevelSize: .018,
+    bevelThickness: .012,
+    curveSegments: 16
+  });
+  bladeGeometry.translate(0, 0, -.0225);
+  for (let blade = 0; blade < 5; blade += 1) {
+    add(g, bladeGeometry, bladeMaterial, [0, fanY, .1], [0, 0, blade * Math.PI * 2 / 5 + .16], `Swept fan blade ${blade + 1}`);
   }
-  ring(g,.72,.035,graphite,[0,1.84,.15],[0,0,0],48,'Safety grille rim');
-  for(let spoke=0;spoke<12;spoke++){const a=spoke*Math.PI*2/12; rod(g,[0,1.84,.15],[Math.cos(a)*.7,1.84+Math.sin(a)*.7,.15],.012,aluminium);}
-  cylinder(g,.05,.045,cyan,[0,.65,.14],[Math.PI/2,0,0],16,'Power control');
+  cylinder(g, .17, .105, graphite, [0, fanY, .22], [Math.PI / 2, 0, 0], 40, 'Front centre cap');
+  cylinder(g, .085, .115, cyan, [0, fanY, .235], [Math.PI / 2, 0, 0], 32, 'Centre badge');
+
+  for (const z of [-.15, .27]) {
+    ring(g, .76, .025, grille, [0, fanY, z], null, 64, 'Safety grille outer rim');
+    for (const radius of [.29, .44, .59]) ring(g, radius, .008, grille, [0, fanY, z], null, 64, 'Safety grille concentric wire');
+    for (let spoke = 0; spoke < 8; spoke += 1) {
+      const angle = spoke * Math.PI * 2 / 8;
+      rod(g, [Math.cos(angle) * .18, fanY + Math.sin(angle) * .18, z], [Math.cos(angle) * .75, fanY + Math.sin(angle) * .75, z], .008, grille);
+    }
+  }
+
+  box(g, [.18, .3, .055], graphite, [0, .64, .135], null, .045, 'Fan control panel');
+  for (let button = 0; button < 3; button += 1) cylinder(g, .025, .025, button === 2 ? cyan : silver, [-.05 + button * .05, .68, .17], [Math.PI / 2, 0, 0], 18, 'Speed control');
   return g;
 }
 
@@ -1535,15 +1669,52 @@ function build3dPrinter() {
 }
 
 function buildAcAdapter() {
-  const g = new THREE.Group(); g.name = 'Premium USB-C AC power adapter';
-  box(g, [.78, .58, .92], mat(0x303840, .36, .45), [0, .36, 0], null, .16, 'Power adapter body');
-  box(g, [.62, .025, .68], graphite, [0, .665, 0], null, .1, 'Rating panel');
-  for (const x of [-.14, .14]) box(g, [.085, .36, .075], silver, [x, .96, -.1], null, .012, 'AC mains blade');
-  cylinder(g, .075, .12, rubber, [0, .32, .51], [Math.PI / 2, 0, 0], 20, 'Cable strain relief');
-  const cable = new THREE.CatmullRomCurve3([new THREE.Vector3(0,.32,.55),new THREE.Vector3(.35,.23,.8),new THREE.Vector3(.72,.16,.63),new THREE.Vector3(.9,.2,.28)]);
-  add(g, new THREE.TubeGeometry(cable, 32, .035, 10, false), rubber, [0,0,0], null, 'USB-C charging cable');
-  box(g, [.3, .12, .14], aluminium, [.98, .2, .23], null, .045, 'USB-C plug');
-  box(g, [.12, .055, .035], black, [1.14, .2, .23], null, .008);
+  const g = new THREE.Group(); g.name = 'Premium compact USB-C wall power adapter';
+  const satinBlack = mat(0x171b1e, .28, .34);
+  box(g, [.9, .76, .88], satinBlack, [0, .52, 0], null, .2, 'Satin wall charger enclosure');
+  box(g, [.7, .025, .64], graphite, [0, .915, .02], null, .11, 'Recessed charger face');
+  box(g, [.58, .3, .018], mat(0x2e363b, .45, .24), [0, .55, .451], null, .045, 'Electrical rating plate');
+  for (let line = 0; line < 4; line += 1) box(g, [.38 - line * .045, .018, .008], silver, [0, .64 - line * .065, .462], null, .003, 'Rating label line');
+  // Proper parallel wall blades project from the rear face instead of floating above the charger.
+  for (const x of [-.2, .2]) box(g, [.09, .3, .42], silver, [x, .55, -.62], null, .012, 'AC mains blade');
+  box(g, [.56, .42, .08], black, [0, .55, -.46], null, .08, 'Insulated plug base');
+  cylinder(g, .1, .18, rubber, [0, .5, .5], [Math.PI / 2, 0, 0], 24, 'Reinforced cable strain relief');
+  for (let rib = 0; rib < 4; rib += 1) ring(g, .085 - rib * .008, .012, graphite, [0, .5, .48 + rib * .045], [0, 0, 0], 24);
+  const cable = new THREE.CatmullRomCurve3([new THREE.Vector3(0,.5,.59),new THREE.Vector3(.38,.36,.86),new THREE.Vector3(.83,.22,.68),new THREE.Vector3(1.12,.24,.3)]);
+  add(g, new THREE.TubeGeometry(cable, 44, .04, 12, false), rubber, [0,0,0], null, 'Flexible USB-C charging cable');
+  box(g, [.38, .15, .19], aluminium, [1.28, .24, .25], null, .055, 'USB-C connector shell');
+  box(g, [.16, .07, .1], black, [1.54, .24, .25], null, .018, 'USB-C connector tongue');
+  cylinder(g, .018, .012, cyan, [.32, .93, .22], null, 10, 'Power indicator');
+  return g;
+}
+
+function buildAaBatteryPack() {
+  const g = new THREE.Group(); g.name = 'Four-pack of premium copper-top AA alkaline batteries';
+  const copperTop = mat(0xb86832, .22, .68);
+  const labelBlack = mat(0x121416, .3, .38);
+  const labelWhite = mat(0xe9e5dc, .52, .08);
+  const cells = [
+    [-.48, .74, -.2, -.08], [.48, .74, -.2, .08],
+    [-.48, .68, .26, .07], [.48, .68, .26, -.07]
+  ];
+  cells.forEach(([x, y, z, tilt], index) => {
+    const battery = new THREE.Group();
+    battery.position.set(x, y, z);
+    battery.rotation.z = tilt;
+    battery.name = `AA alkaline battery ${index + 1}`;
+    cylinder(battery, .205, .92, labelBlack, [0, -.14, 0], null, 36, 'Black alkaline cell body');
+    cylinder(battery, .207, .4, copperTop, [0, .52, 0], null, 36, 'Copper top casing');
+    ring(battery, .188, .012, gold, [0, .31, 0], [Math.PI / 2, 0, 0], 36);
+    cylinder(battery, .165, .045, black, [0, -.625, 0], null, 32, 'Negative terminal cap');
+    cylinder(battery, .09, .075, silver, [0, .758, 0], null, 28, 'Positive terminal button');
+    cylinder(battery, .135, .025, graphite, [0, .708, 0], null, 32, 'Positive terminal insulator');
+    // Simple contrasting front label details remain readable as the cell rotates.
+    box(battery, [.2, .28, .018], labelWhite, [0, -.12, .2], null, .012, 'Battery brand label');
+    box(battery, [.13, .1, .02], copperTop, [0, -.36, .205], null, .009, 'AA size marker');
+    g.add(battery);
+  });
+  box(g, [1.3, .08, .78], mat(0x24292d, .75, .18), [0, .08, .02], null, .045, 'Four-cell presentation tray');
+  for (const x of [-.48, .48]) for (const z of [-.2, .26]) ring(g, .22, .025, rubber, [x, .14, z], [Math.PI / 2, 0, 0], 32);
   return g;
 }
 
@@ -1655,13 +1826,39 @@ function buildProfessionalMicrophone() {
 }
 
 function buildProjectorScreen() {
-  const g = new THREE.Group(); g.name = 'Premium tripod projection screen';
-  box(g, [2.35, 1.35, .055], mat(0xf2f4f2, .8), [0, 1.25, 0], null, .025, 'Projection fabric');
-  box(g, [2.55, .12, .14], graphite, [0, 1.96, 0], null, .04, 'Screen cassette');
-  box(g, [2.48, .08, .1], graphite, [0, .55, 0], null, .025, 'Weighted screen bar');
-  cylinder(g, .055, 1.55, aluminium, [0, .57, -.08], null, 20, 'Height-adjustable mast');
-  cylinder(g, .08, .16, graphite, [0, .36, -.08], null, 20, 'Tripod collar');
-  for (const angle of [0, Math.PI * 2 / 3, Math.PI * 4 / 3]) rod(g, [0, .35, -.08], [Math.cos(angle) * .72, .04, -.08 + Math.sin(angle) * .72], .035, graphite);
+  const g = new THREE.Group(); g.name = 'Professional portable tripod projection screen';
+  const matteWhite = mat(0xffffff, .96, .0, { emissive: 0xffffff, emissiveIntensity: .035 });
+  const border = mat(0x11171b, .82, .08);
+
+  // A genuinely thin reflective surface with a front masking frame. Keeping
+  // the border forward of the fabric prevents z-fighting in card previews.
+  box(g, [2.5, 1.42, .025], matteWhite, [0, 1.94, .02], null, .012, 'Matte white projection surface');
+  box(g, [2.62, .075, .045], border, [0, 2.685, .045], null, .018, 'Top black masking border');
+  box(g, [2.62, .075, .045], border, [0, 1.195, .045], null, .018, 'Bottom black masking border');
+  for (const x of [-1.275, 1.275]) box(g, [.07, 1.42, .045], border, [x, 1.94, .045], null, .018, 'Side black masking border');
+
+  // Slim retractable cassette with end caps and a centered pull handle.
+  box(g, [2.82, .15, .18], graphite, [0, 2.79, -.015], null, .065, 'Retractable roller cassette');
+  for (const x of [-1.42, 1.42]) cylinder(g, .105, .08, black, [x, 2.79, -.015], [0, 0, Math.PI / 2], 28, 'Cassette end cap');
+  box(g, [.42, .07, .11], aluminium, [0, 2.9, -.015], null, .03, 'Screen pull handle');
+  box(g, [2.72, .12, .13], graphite, [0, 1.12, -.015], null, .045, 'Weighted lower rail');
+  for (const x of [-1.25, 1.25]) cylinder(g, .055, .05, black, [x, 1.12, -.015], [0, 0, Math.PI / 2], 20, 'Lower rail cap');
+
+  // Stand sits behind the screen and connects cleanly beneath it.
+  cylinder(g, .075, 1.78, aluminium, [0, 1.34, -.18], null, 28, 'Lower telescopic support mast');
+  cylinder(g, .058, 1.52, silver, [0, 2.15, -.18], null, 24, 'Fully extended upper mast');
+  cylinder(g, .043, .52, aluminium, [0, 2.68, -.18], null, 22, 'Fine-height extension pole');
+  box(g, [.28, .18, .2], graphite, [0, 2.82, -.18], null, .055, 'Cassette support bracket');
+  cylinder(g, .13, .16, graphite, [0, .47, -.18], null, 28, 'Tripod locking collar');
+  cylinder(g, .055, .06, cyan, [.13, .49, -.1], [Math.PI / 2, 0, 0], 20, 'Height lock control');
+
+  const legJoint = [0, .39, -.18];
+  const feet = [[-.94, .065, .25], [.94, .065, .25], [0, .065, -1.08]];
+  for (const [x, y, z] of feet) {
+    rod(g, legJoint, [x, y + .035, z], .045, graphite);
+    box(g, [.32, .075, .14], rubber, [x, y, z], [0, Math.atan2(x, z) || 0, 0], .035, 'Non-slip tripod foot');
+  }
+  cylinder(g, .09, .14, graphite, legJoint, null, 28, 'Tripod hinge');
   return g;
 }
 
@@ -1885,6 +2082,12 @@ const definitions = [
   ['power-distribution-unit', generatedPath, buildPdu],
   ['power-inverter', generatedPath, buildInverter],
   ['presentation-clicker', corePath, buildPresentationClicker],
+  ['printer-drum-unit', generatedPath, buildPrinterDrumUnit],
+  ['printer-fuser-unit', generatedPath, buildPrinterFuserUnit],
+  ['printer-imaging-unit', corePath, buildPrinterImagingUnit],
+  ['printer-paper-ream', generatedPath, buildPrinterPaperReam],
+  ['printer-staple-kit', generatedPath, buildPrinterStapleKit],
+  ['printer-transfer-belt', corePath, buildPrinterTransferBelt],
   ['professional-microphone', corePath, buildProfessionalMicrophone],
   ['projector-screen', corePath, buildProjectorScreen],
   ['ptz-camera', generatedPath, buildPtzCamera],
@@ -1897,6 +2100,7 @@ const definitions = [
   ['network-switch', officePath, buildNetworkSwitch],
   ['3d-printer', generatedPath, build3dPrinter],
   ['ac-power-adapter', generatedPath, buildAcAdapter],
+  ['aa-battery-pack', generatedPath, buildAaBatteryPack],
   ['access-control-panel', generatedPath, buildAccessPanel],
   ['air-conditioner', generatedPath, buildAirConditioner],
   ['all-in-one-desktop', officePath, buildAllInOne],

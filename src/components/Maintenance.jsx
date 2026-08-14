@@ -86,11 +86,20 @@ export default function Maintenance({ items, tickets, schedules, technicians, em
     if (createSignal && canManage) { openNewTicket(); onCreateSignalHandled?.(); }
   }, [createSignal]);
   const openTicket = (ticket) => { onAcknowledge?.(ticket.id); setEditingTicketId(ticket.id); setTicketError(''); setTicketForm({ ...blankTicket(ticket.itemId), ...ticket, photos: ticket.photos || [] }); setTicketOpen(true); };
-  const saveTicket = () => {
-    if (!ticketForm.itemId) { setTicketError('Choose an asset.'); return; }
-    if (!ticketForm.faultDescription.trim()) { setTicketError('Describe the fault or maintenance work required.'); return; }
-    if (ticketForm.status === 'Completed' && !ticketForm.resolution.trim()) { setTicketError('Enter the completed repair or service resolution.'); return; }
-    const clean = { ...ticketForm, partsCost: Math.max(0, Number(ticketForm.partsCost) || 0), laborCost: Math.max(0, Number(ticketForm.laborCost) || 0) };
+  const openTicketForCompletion = (event, ticket) => {
+    event.stopPropagation();
+    onAcknowledge?.(ticket.id);
+    setEditingTicketId(ticket.id);
+    setTicketError('');
+    setTicketForm({ ...blankTicket(ticket.itemId), ...ticket, status: 'Completed', photos: ticket.photos || [] });
+    setTicketOpen(true);
+  };
+  const saveTicket = (statusOverride = '') => {
+    const effectiveForm = statusOverride ? { ...ticketForm, status: statusOverride } : ticketForm;
+    if (!effectiveForm.itemId) { setTicketError('Choose an asset.'); return; }
+    if (!effectiveForm.faultDescription.trim()) { setTicketError('Describe the fault or maintenance work required.'); return; }
+    if (effectiveForm.status === 'Completed' && !effectiveForm.resolution.trim()) { setTicketError('Enter the completed repair or service resolution before closing this ticket.'); return; }
+    const clean = { ...effectiveForm, partsCost: Math.max(0, Number(effectiveForm.partsCost) || 0), laborCost: Math.max(0, Number(effectiveForm.laborCost) || 0) };
     const saved = editingTicketId ? onUpdateTicket(editingTicketId, clean) : onCreateTicket(clean);
     if (saved !== false && saved !== null) setTicketOpen(false);
   };
@@ -166,7 +175,7 @@ export default function Maintenance({ items, tickets, schedules, technicians, em
           <span style={{ minWidth: 0 }}><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11.5 }}>{ticket.faultDescription}</strong><small style={{ color: '#7b8794' }}>{ticket.type} · {ticket.priority} priority</small></span>
           <span style={{ color: '#566472', fontSize: 11.5 }}>{ticket.technician || 'Unassigned'}</span>
           <span style={{ color: '#566472', fontSize: 11.5 }}>{ticket.vendor || 'Internal repair'}<small style={{ display: 'block', color: '#7b8794' }}>{ticket.rmaNumber ? `RMA ${ticket.rmaNumber}` : 'No RMA'}</small></span>
-          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11 }}>{money(Number(ticket.partsCost || 0) + Number(ticket.laborCost || 0))}</span><span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><TicketBadge status={ticket.status} /><button type="button" className="btn-ghost" disabled={!!pdfBusyId} onClick={(event) => previewTicketPdf(event, ticket)} style={{ height: 29, padding: '0 8px', borderRadius: 7, color: '#0a3d7c', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>{pdfBusyId === ticket.id ? 'Opening…' : 'PDF'}</button><button type="button" className="maintenance-email-button" onClick={(event) => { event.stopPropagation(); setEmailTicket({ ...ticket, itemLocation: ticket.itemLocation || item?.location, itemRoom: ticket.itemRoom || item?.room }); }}>Outlook</button></span>
+          <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11 }}>{money(Number(ticket.partsCost || 0) + Number(ticket.laborCost || 0))}</span><span className="maintenance-ticket-actions"><TicketBadge status={ticket.status} />{canManage && ACTIVE.includes(ticket.status) && <button type="button" className="maintenance-close-ticket" onClick={(event) => openTicketForCompletion(event, ticket)}>Close</button>}<button type="button" className="btn-ghost" disabled={!!pdfBusyId} onClick={(event) => previewTicketPdf(event, ticket)} style={{ height: 29, padding: '0 8px', borderRadius: 7, color: '#0a3d7c', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>{pdfBusyId === ticket.id ? 'Opening…' : 'PDF'}</button><button type="button" className="maintenance-email-button" onClick={(event) => { event.stopPropagation(); setEmailTicket({ ...ticket, itemLocation: ticket.itemLocation || item?.location, itemRoom: ticket.itemRoom || item?.room }); }}>Outlook</button></span>
         </div>; })}
         {!visibleTickets.length && <div style={emptyStyle}>No repair tickets match this view.</div>}
       </div> : <div className="maintenance-table-card">
@@ -201,7 +210,7 @@ export default function Maintenance({ items, tickets, schedules, technicians, em
           </section>
           {editingTicketId && <section style={{ ...formSection, gridColumn: '1 / -1' }}><h3>Ticket activity</h3><div style={{ display: 'flex', flexDirection: 'column' }}>{(ticketForm.activity || []).slice().reverse().map((entry, index) => <div key={`${entry.at}-${index}`} style={{ padding: '8px 0', display: 'grid', gridTemplateColumns: '150px 150px 1fr', borderTop: '1px solid #edf0f3', fontSize: 11.5 }}><span style={{ color: '#6d7985' }}>{dateTime(entry.at)}</span><strong>{entry.by}</strong><span>{entry.text}</span></div>)}</div></section>}
         </div>
-        <div style={modalFooter}>{ticketError && <span style={{ flex: 1, color: '#a01a12', fontSize: 11.5 }}>{ticketError}</span>}<button type="button" className="btn-ghost" onClick={() => setTicketOpen(false)} style={secondaryButton}>Cancel</button>{canManage && <button type="button" className="btn-primary" onClick={saveTicket} style={primaryButton}>{editingTicketId ? 'Save ticket' : 'Create ticket'}</button>}</div>
+        <div style={modalFooter}>{ticketError && <span style={{ flex: 1, color: '#a01a12', fontSize: 11.5 }}>{ticketError}</span>}<button type="button" className="btn-ghost" onClick={() => setTicketOpen(false)} style={secondaryButton}>Cancel</button>{canManage && editingTicketId && ACTIVE.includes(ticketForm.status) && <button type="button" className="maintenance-complete-ticket" onClick={() => saveTicket('Completed')}>✓ Complete & close</button>}{canManage && <button type="button" className="btn-primary" onClick={() => saveTicket()} style={primaryButton}>{editingTicketId ? (ticketForm.status === 'Completed' ? 'Save completed ticket' : 'Save ticket') : 'Create ticket'}</button>}</div>
       </div></div>}
 
       {scheduleOpen && <div style={backdrop} role="dialog" aria-modal="true" aria-label={editingScheduleId ? 'Edit preventive-maintenance schedule' : 'New preventive-maintenance schedule'}><div style={{ ...modalCard, width: 'min(650px,100%)' }}><div style={modalHeader}><span style={{ flex: 1 }}><strong style={{ display: 'block', fontSize: 15 }}>{editingScheduleId ? 'Edit preventive-maintenance schedule' : 'New preventive-maintenance schedule'}</strong><small style={{ color: '#7b8794' }}>Plan recurring inspection and servicing</small></span><button type="button" className="btn-ghost" onClick={() => setScheduleOpen(false)} style={closeButton}><IconX /></button></div>
@@ -227,7 +236,7 @@ const primaryButton = { height: 36, padding: '0 14px', borderRadius: 8, fontSize
 const secondaryButton = { height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12 };
 const smallButton = { height: 30, padding: '0 9px', borderRadius: 7, fontSize: 10.5 };
 const tableCard = { background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden' };
-const tableGrid = { padding: '11px 14px', display: 'grid', gridTemplateColumns: '1.35fr 1.7fr .85fr .9fr .55fr 1.15fr', gap: 12 };
+const tableGrid = { padding: '11px 14px', display: 'grid', gridTemplateColumns: '1.3fr 1.55fr .8fr .85fr .5fr 1.55fr', gap: 12 };
 const scheduleGrid = { padding: '11px 14px', display: 'grid', gridTemplateColumns: '1.35fr .65fr .9fr .85fr 1.2fr 1fr', gap: 12 };
 const emptyStyle = { padding: 42, textAlign: 'center', color: '#7b8794', fontSize: 12.5 };
 const backdrop = { position: 'fixed', inset: 0, zIndex: 720, padding: 24, display: 'grid', placeItems: 'center', overflow: 'hidden', overscrollBehavior: 'contain', background: 'rgba(13,17,22,.55)' };

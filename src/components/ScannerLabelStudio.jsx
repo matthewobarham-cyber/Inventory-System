@@ -21,15 +21,15 @@ const createdTimeFor = (item) => {
 };
 const recentDateLabel = (time) => new Date(time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
-export default function ScannerLabelStudio({ items, placements = [] }) {
+export default function ScannerLabelStudio({ items, placements = [], selectedIds = [], setSelectedIds, focusSignal = 0 }) {
   const [query, setQuery] = useState('');
   const [recentQuery, setRecentQuery] = useState('');
   const [sourceTab, setSourceTab] = useState('search');
-  const [selectedIds, setSelectedIds] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [printActive, setPrintActive] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const sheetRef = useRef(null);
+  const studioRef = useRef(null);
 
   const available = useMemo(() => items.filter((item) => item.tag && !item.archived), [items]);
   const selected = useMemo(() => selectedIds.map((id) => available.find((item) => item.id === id)).filter(Boolean), [available, selectedIds]);
@@ -78,23 +78,29 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
 
   useEffect(() => {
     const valid = new Set(available.map((item) => item.id));
-    setSelectedIds((current) => current.filter((id) => valid.has(id)).slice(0, MAX_LABELS));
-  }, [available]);
+    setSelectedIds?.((current) => current.filter((id) => valid.has(id)).slice(0, MAX_LABELS));
+  }, [available, setSelectedIds]);
+
+  useEffect(() => {
+    if (!focusSignal) return;
+    setSourceTab('search');
+    requestAnimationFrame(() => studioRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, [focusSignal]);
 
   const add = (item) => {
     if (!item || selectedIds.includes(item.id) || selectedIds.length >= MAX_LABELS) return;
-    setSelectedIds((current) => [...current, item.id]);
+    setSelectedIds?.((current) => [...current, item.id]);
     setSearchOpen(true);
   };
   const addPlacementAssets = (assets) => {
-    setSelectedIds((current) => {
+    setSelectedIds?.((current) => {
       const next = [...current];
       assets.forEach((item) => { if (!next.includes(item.id) && next.length < MAX_LABELS) next.push(item.id); });
       return next;
     });
   };
   const addRecentAssets = () => addPlacementAssets(filteredRecentAssets.map((entry) => entry.item).filter((item) => !selectedIds.includes(item.id)));
-  const remove = (id) => setSelectedIds((current) => current.filter((entry) => entry !== id));
+  const remove = (id) => setSelectedIds?.((current) => current.filter((entry) => entry !== id));
   const openPrintPreview = () => {
     if (!selected.length || printActive) return;
     setPrintActive(true);
@@ -138,7 +144,7 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
     }
   };
 
-  return <section className="scanner-label-studio">
+  return <section ref={studioRef} className="scanner-label-studio">
     <header className="scanner-label-studio-header">
       <span><small>LABEL PRODUCTION</small><strong>Build a 14-label barcode sheet</strong><p>Search inventory, arrange up to fourteen assets, and inspect the exact Avery 5162 layout before printing.</p></span>
       <div><b>{selected.length}</b><span>of {MAX_LABELS}<small>labels loaded</small></span></div>
@@ -194,7 +200,7 @@ export default function ScannerLabelStudio({ items, placements = [] }) {
       </div>}
 
       <div className="scanner-label-queue">
-        <header><span><small>PRINT ORDER</small><strong>Selected labels</strong></span>{selected.length > 0 && <button type="button" onClick={() => setSelectedIds([])}>Clear all</button>}</header>
+        <header><span><small>PRINT ORDER</small><strong>Selected labels</strong></span>{selected.length > 0 && <button type="button" onClick={() => setSelectedIds?.([])}>Clear all</button>}</header>
         <div>
           {selected.map((item, index) => <button type="button" key={item.id} onClick={() => remove(item.id)} title={`Remove ${item.name}`}><b>{String(index + 1).padStart(2, '0')}</b><span><strong>{item.name}</strong><code>{item.tag}</code></span><i>×</i></button>)}
           {Array.from({ length: MAX_LABELS - selected.length }, (_, index) => <span className="empty" key={`empty-${index}`}><b>{String(selected.length + index + 1).padStart(2, '0')}</b><small>Available position</small></span>)}

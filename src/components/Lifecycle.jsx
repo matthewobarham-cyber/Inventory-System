@@ -648,6 +648,8 @@ export default function Lifecycle({
   canApprove,
   createSignal = 0,
   onCreateSignalHandled,
+  focusItemId = "",
+  focusSignal = 0,
   onUpdateAsset,
   onCreateAction,
   onDecide,
@@ -670,6 +672,7 @@ export default function Lifecycle({
   });
   const [forecastPage, setForecastPage] = useState(1);
   const [equipmentCategory, setEquipmentCategory] = useState("All categories");
+  const [summaryFilter, setSummaryFilter] = useState("");
   const [actionSort, setActionSort] = useState({
     key: "requested",
     direction: "desc",
@@ -679,6 +682,13 @@ export default function Lifecycle({
     () => new Map(items.map((item) => [item.id, item])),
     [items],
   );
+  useEffect(() => {
+    if (!focusSignal || !focusItemId) return;
+    const focusedItem = itemMap.get(focusItemId);
+    if (!focusedItem) return;
+    setTab("forecast");
+    setPreviewItem(focusedItem);
+  }, [focusItemId, focusSignal, itemMap]);
   const term = (query || "").trim().toLowerCase();
   const equipmentCategories = useMemo(
     () => {
@@ -691,19 +701,28 @@ export default function Lifecycle({
     },
     [items],
   );
+  const scopedItems = useMemo(
+    () => items.filter(
+      (item) =>
+        (equipmentCategory === "All categories" || lifecycleCategoryFor(item) === equipmentCategory) &&
+        (!term || `${item.name} ${item.tag} ${item.serial} ${item.location} ${item.room}`.toLowerCase().includes(term)),
+    ),
+    [items, term, equipmentCategory],
+  );
+  const monitoredItems = useMemo(
+    () => scopedItems.filter((item) => item.status !== "Retired"),
+    [scopedItems],
+  );
   const activeItems = useMemo(
     () =>
       sortRows(
-        items.filter(
-          (item) =>
-            item.status !== "Retired" &&
-            (equipmentCategory === "All categories" ||
-              lifecycleCategoryFor(item) === equipmentCategory) &&
-            (!term ||
-              `${item.name} ${item.tag} ${item.serial} ${item.location} ${item.room}`
-                .toLowerCase()
-                .includes(term)),
-        ),
+        scopedItems.filter((item) => {
+          if (summaryFilter === "retired") return item.status === "Retired";
+          if (item.status === "Retired") return false;
+          if (summaryFilter === "critical") return lifecycleFlags(item).replacementDue;
+          if (summaryFilter === "warning") return lifecycleFlags(item).warrantySoon;
+          return true;
+        }),
         forecastSort,
         {
           asset: (row) => row.name,
@@ -713,7 +732,7 @@ export default function Lifecycle({
           replacement: (row) => expectedReplacementFor(row),
         },
       ),
-    [items, term, equipmentCategory, forecastSort],
+    [scopedItems, summaryFilter, forecastSort],
   );
   const forecastPageCount = Math.max(
     1,
@@ -748,7 +767,7 @@ export default function Lifecycle({
     });
     return result;
   }, [forecastPage, forecastPageCount]);
-  useEffect(() => setForecastPage(1), [term, equipmentCategory, forecastSort.key, forecastSort.direction]);
+  useEffect(() => setForecastPage(1), [term, equipmentCategory, summaryFilter, forecastSort.key, forecastSort.direction]);
   useEffect(
     () => setForecastPage((current) => Math.min(current, forecastPageCount)),
     [forecastPageCount],
@@ -758,10 +777,11 @@ export default function Lifecycle({
       sortRows(
         actions.filter(
           (action) =>
-            !term ||
-            `${action.id} ${action.type} ${action.itemName} ${action.itemTag} ${action.status} ${action.recipient} ${action.vendor}`
-              .toLowerCase()
-              .includes(term),
+            (summaryFilter !== "approval" || action.status === "Pending approval") &&
+            (!term ||
+              `${action.id} ${action.type} ${action.itemName} ${action.itemTag} ${action.status} ${action.recipient} ${action.vendor}`
+                .toLowerCase()
+                .includes(term)),
         ),
         actionSort,
         {
@@ -773,23 +793,24 @@ export default function Lifecycle({
           status: (row) => row.status,
         },
       ),
-    [actions, term, actionSort],
+    [actions, term, summaryFilter, actionSort],
   );
-  const due = activeItems.filter(
+  const due = monitoredItems.filter(
     (item) => lifecycleFlags(item).replacementDue,
   ).length;
-  const warrantySoon = activeItems.filter(
+  const warrantySoon = monitoredItems.filter(
     (item) => lifecycleFlags(item).warrantySoon,
   ).length;
   const pending = actions.filter(
     (action) => action.status === "Pending approval",
   ).length;
-  const retired = items.filter(
-    (item) =>
-      item.status === "Retired" &&
-      (equipmentCategory === "All categories" ||
-        lifecycleCategoryFor(item) === equipmentCategory),
-  ).length;
+  const retired = scopedItems.filter((item) => item.status === "Retired").length;
+
+  const selectSummary = (tone) => {
+    const next = summaryFilter === tone ? "" : tone;
+    setSummaryFilter(next);
+    setTab(tone === "approval" ? "actions" : "forecast");
+  };
 
   const openSettings = (item) => {
     setSettingsItem(item);
@@ -875,7 +896,7 @@ export default function Lifecycle({
           </p>
         </div>
         <div className="lifecycle-hero-orbit">
-          <span>{activeItems.length}</span>
+          <span>{monitoredItems.length}</span>
           <small>
             active assets
             <br />
@@ -910,9 +931,13 @@ export default function Lifecycle({
             "retired",
           ],
         ].map(([label, value, note, tone]) => (
-          <div
+          <button
+            type="button"
             key={label}
             className={`lifecycle-summary-card lifecycle-summary-${tone}`}
+            data-active={summaryFilter === tone}
+            aria-pressed={summaryFilter === tone}
+            onClick={() => selectSummary(tone)}
           >
             <span className="lifecycle-summary-icon" />
             <div>
@@ -920,7 +945,7 @@ export default function Lifecycle({
               <strong>{value}</strong>
               <span>{note}</span>
             </div>
-          </div>
+          </button>
         ))}
       </div>
       <div className="lifecycle-toolbar">
@@ -928,21 +953,21 @@ export default function Lifecycle({
           <button
             type="button"
             className={tab === "forecast" ? "active" : ""}
-            onClick={() => setTab("forecast")}
+            onClick={() => { setTab("forecast"); if (summaryFilter === "approval") setSummaryFilter(""); }}
           >
             Asset life map
           </button>
           <button
             type="button"
             className={tab === "actions" ? "active" : ""}
-            onClick={() => setTab("actions")}
+            onClick={() => { setTab("actions"); if (summaryFilter !== "approval") setSummaryFilter(""); }}
           >
             Disposition workflows
           </button>
         </div>
         <span className="lifecycle-result-count">
           {tab === "forecast"
-            ? `${activeItems.length} active assets`
+            ? `${activeItems.length} ${summaryFilter === "retired" ? "retired records" : "assets"}`
             : `${visibleActions.length} lifecycle requests`}
         </span>
         {tab === "forecast" && (

@@ -14,9 +14,19 @@ const COLORS = [
 ];
 
 const PRINTER_SUPPLY_PATTERN = /toner|ink|cartridge|imaging unit|transfer belt|fuser|drum unit|staple kit|waste toner/i;
+const PRINTER_SERVICE_TYPES = [
+  { id: 'printer-toner', label: 'Toner cartridges', detail: 'CMYK replacement cartridges and printer-linked stock' },
+  { id: 'printer-drum-unit', label: 'Drum units', detail: 'Photoconductor drums and replacement assemblies' },
+  { id: 'printer-fuser-unit', label: 'Fuser units', detail: 'Heated roller assemblies and maintenance replacements' },
+  { id: 'printer-imaging-unit', label: 'Imaging units', detail: 'OPC imaging and developer assemblies' },
+  { id: 'printer-transfer-belt', label: 'Transfer belts', detail: 'Image transfer belt assemblies and service stock' },
+  { id: 'printer-staple-kit', label: 'Staple kits', detail: 'Finisher staple cartridges and refill stock' },
+  { id: 'printer-paper-ream', label: 'Paper reams', detail: 'Single-use copy paper and printer media stock' }
+];
+const PRINTER_SERVICE_IDS = new Set(PRINTER_SERVICE_TYPES.map((type) => type.id));
 
 function isPrinterSupply(item) {
-  return item.category === 'Printer consumables' || PRINTER_SUPPLY_PATTERN.test(`${item.name || ''} ${item.model || ''}`);
+  return PRINTER_SERVICE_IDS.has(item.model) || item.category === 'Printer consumables' || PRINTER_SUPPLY_PATTERN.test(`${item.name || ''} ${item.model || ''}`);
 }
 
 function isPrinterDevice(item) {
@@ -64,7 +74,48 @@ function StockState({ item }) {
   return <span className="consumable-stock-state healthy">Available</span>;
 }
 
-function Consumables({ items, usage, query, canManage, scannerAction, onScannerActionHandled, onUse, onAddStock, onCreateTonerMovement, onBulkUse, onSetCompatibility, onCreateInk, onReorder, onOpenItem }) {
+function CollapseToggle({ collapsed, label, onClick }) {
+  return <button type="button" className="consumables-collapse-toggle" data-collapsed={collapsed ? 'true' : undefined} aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`} title={`${collapsed ? 'Expand' : 'Collapse'} ${label}`} onClick={onClick}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5" /></svg></button>;
+}
+
+function CollapseRegion({ collapsed, contentClassName = '', children }) {
+  return <div className="consumables-collapse-region" data-collapsed={collapsed ? 'true' : undefined} aria-hidden={collapsed}><div className="consumables-collapse-region-inner"><div className={contentClassName}>{children}</div></div></div>;
+}
+
+function InkRecordCard({ printer, color, records, scannerHighlight, canManage, onOpenItem, onQuickChange }) {
+  const [expanded, setExpanded] = useState(false);
+  const quantity = records.reduce((sum, record) => sum + Number(record.qty || 0), 0);
+  const minimum = records.reduce((sum, record) => sum + Number(record.min || 0), 0);
+  const summaryItem = { ...records[0], qty: quantity, min: minimum };
+  const firstRecord = records[0];
+  const additionalRecords = records.slice(1);
+  const renderRecord = (record, index) => <button key={record.id} type="button" className="ink-record-entry" data-consumable-id={record.id} data-scanned={scannerHighlight === record.id ? 'true' : undefined} onClick={() => onOpenItem(record.id)} title={`Open inventory profile for ${record.tag}`}>
+    <span><small>Cartridge {index + 1}</small><strong>{record.name}</strong><code>{record.tag}</code></span>
+    <span className="ink-record-entry-meta"><b>{Number(record.qty || 0) ? 'Available' : 'Used'}</b><small>{record.location || 'Unassigned'} · {record.room || 'No room'}</small><em>View profile →</em></span>
+  </button>;
+  return <div className="ink-color-card ink-color-card-records" data-color={color.key} data-scanned={records.some((record) => scannerHighlight === record.id) ? 'true' : undefined} style={{ '--ink': color.hex, '--ink-soft': color.soft }}>
+    <div className="ink-model-wrap"><ModelStage url={`generated/models/toner-${color.key}.glb`} label={`${color.label} cartridge 3D model`} /><span className="ink-color-key">{color.short}</span></div>
+    <div className="ink-card-copy">
+      <span><strong>{color.label}</strong><StockState item={summaryItem} /></span>
+      <div className="ink-stock-line"><strong>{quantity}</strong><span>{records[0].unitOfMeasure || 'units'} across {records.length} record{records.length === 1 ? '' : 's'}<small>Each cartridge has its own asset number</small></span></div>
+      {additionalRecords.length ? <div className="ink-record-stack-shell" data-expanded={expanded ? 'true' : undefined}>
+        <button type="button" className="ink-record-stack ink-record-stack-face" data-expanded={expanded ? 'true' : undefined} onClick={() => setExpanded((current) => !current)} aria-expanded={expanded}>
+          <span className="ink-record-stack-layers" aria-hidden="true">{Array.from({ length: Math.min(3, additionalRecords.length) }, (_, index) => <i key={index} />)}</span>
+          <span className="ink-record-stack-record"><small>Cartridge 1</small><strong>{firstRecord.name}</strong><code>{firstRecord.tag}</code><em>{firstRecord.location || 'Unassigned'} · {firstRecord.room || 'No room'}</em></span>
+          <span className="ink-record-stack-count"><strong>+{additionalRecords.length}</strong><small>{expanded ? 'Hide stack' : 'more'}</small><b aria-hidden="true">{expanded ? '⌃' : '⌄'}</b></span>
+        </button>
+        <div className="ink-record-expand" data-expanded={expanded ? 'true' : undefined}><div>
+          <div className="ink-record-list ink-record-stack-list" aria-label={`Remaining ${color.label} cartridge records for ${printer.name}`}>
+            {additionalRecords.map((record, index) => renderRecord(record, index + 1))}
+          </div>
+        </div></div>
+      </div> : <div className="ink-record-list ink-record-list-primary" aria-label={`${color.label} cartridge record for ${printer.name}`}>{renderRecord(firstRecord, 0)}</div>}
+    </div>
+    {canManage && <footer className="ink-inline-controls"><button type="button" className="ink-quantity-button remove" disabled={quantity < 1} onClick={() => onQuickChange(printer, color, records, -1)} aria-label={`Take one ${color.label} toner for ${printer.name}`}><b>−</b><span>Take one</span></button><button type="button" className="ink-quantity-button add" onClick={() => onQuickChange(printer, color, records, 1)} aria-label={`Add one ${color.label} toner for ${printer.name}`}><b>+</b><span>Add one</span></button></footer>}
+  </div>;
+}
+
+function Consumables({ items, usage, query, canManage, scannerAction, onScannerActionHandled, onUse, onAddStock, onCreateTonerMovement, onBulkUse, onSetCompatibility, onCreateInk, onCreateSupply, onReorder, onOpenItem }) {
   const [family, setFamily] = useState('All supplies');
   const [building, setBuilding] = useState('Building A');
   const [using, setUsing] = useState(null);
@@ -83,8 +134,14 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
   const [tonerForm, setTonerForm] = useState({ qty: 1, issuedTo: '', department: '', purpose: '', notes: '', batchNumber: '', stockCode: '', storageLocation: '', storageRoom: '' });
   const [error, setError] = useState('');
   const [barcodeItem, setBarcodeItem] = useState(null);
+  const [collapsedSections, setCollapsedSections] = useState({});
+  const sectionCollapsed = (key) => Object.prototype.hasOwnProperty.call(collapsedSections, key) ? Boolean(collapsedSections[key]) : key !== 'printers';
+  const toggleSection = (key) => setCollapsedSections((current) => {
+    const collapsed = Object.prototype.hasOwnProperty.call(current, key) ? Boolean(current[key]) : key !== 'printers';
+    return { ...current, [key]: !collapsed };
+  });
 
-  const allConsumables = useMemo(() => items.filter((item) => item.consumable && !item.archived && item.status !== 'Retired'), [items]);
+  const allConsumables = useMemo(() => items.filter((item) => item.consumable && !item.archived && item.status !== 'Retired' && !(item.model === 'printer-toner' && item.serializedConsumable && Number(item.qty || 0) < 1)), [items]);
   const allPrinters = useMemo(() => items.filter(isPrinterDevice).sort((a, b) => a.name.localeCompare(b.name) || a.tag.localeCompare(b.tag)), [items]);
   const availableBuildings = useMemo(() => {
     const present = new Set([...allConsumables, ...allPrinters].map((item) => item.location || 'Unassigned'));
@@ -94,12 +151,20 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
   }, [allConsumables, allPrinters]);
   const consumables = useMemo(() => allConsumables.filter((item) => (item.location || 'Unassigned') === building), [allConsumables, building]);
   const printers = useMemo(() => allPrinters.filter((item) => (item.location || 'Unassigned') === building), [allPrinters, building]);
-  const visibleUsage = useMemo(() => { const ids = new Set(consumables.map((item) => item.id)); return usage.filter((entry) => ids.has(entry.itemId)); }, [consumables, usage]);
+  const visibleUsage = useMemo(() => {
+    const itemLocations = new Map(items.map((item) => [item.id, item.location || 'Unassigned']));
+    return usage.filter((entry) => itemLocations.get(entry.itemId) === building || String(entry.department || '').includes(building));
+  }, [building, items, usage]);
   const families = ['All supplies', 'Printer supplies', 'Paper & media', 'Labels & rolls', 'Batteries', 'Other supplies'];
   const needle = String(query || '').trim().toLowerCase();
   const visibleSupplies = useMemo(() => consumables.filter((item) => (family === 'All supplies' || supplyFamily(item) === family) && (!needle || `${item.name} ${item.tag} ${item.stockCode || ''} ${item.color || ''} ${item.location} ${item.room}`.toLowerCase().includes(needle))), [consumables, family, needle]);
   const printerSupplies = useMemo(() => consumables.filter((item) => supplyFamily(item) === 'Printer supplies'), [consumables]);
+  const printerServiceSections = useMemo(() => PRINTER_SERVICE_TYPES.map((type) => ({
+    ...type,
+    records: consumables.filter((item) => item.model === type.id && (!needle || `${type.label} ${type.detail} ${item.name} ${item.tag} ${item.stockCode || ''} ${item.location} ${item.room}`.toLowerCase().includes(needle)))
+  })).filter((type) => !needle || type.records.length || `${type.label} ${type.detail}`.toLowerCase().includes(needle)), [consumables, needle]);
   const showPrinters = family === 'All supplies' || family === 'Printer supplies';
+  const showPrinterService = family === 'All supplies' || family === 'Printer supplies';
   const visiblePrinters = useMemo(() => printers.filter((printer) => {
     if (!needle) return true;
     const linked = compatibleItems(printer, printerSupplies);
@@ -197,33 +262,38 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
 
     {showPrinters && <section className="printer-families">
       <header className="consumables-section-title">
-        <span><small>Printer compatibility</small><strong>Ink and toner by printer</strong><p>Click any CMYK toner tile to take toner from stock or add newly received stock without leaving the printer.</p></span>
-        <b>{visiblePrinters.length} printer{visiblePrinters.length === 1 ? '' : 's'}</b>
+        <span><small>Printer compatibility</small><strong>Ink and toner by printer</strong><p>Click a printer header to open its full asset page, or select a CMYK toner tile to manage its stock.</p></span>
+        <div className="consumables-section-actions"><b>{visiblePrinters.length} printer{visiblePrinters.length === 1 ? '' : 's'}</b><CollapseToggle collapsed={sectionCollapsed('printers')} label="ink and toner by printer" onClick={() => toggleSection('printers')} /></div>
       </header>
 
-      <div className="printer-family-list">
+      <CollapseRegion collapsed={sectionCollapsed('printers')} contentClassName="printer-family-list">
         {visiblePrinters.map((printer) => {
           const linked = compatibleItems(printer, printerSupplies);
           const linkedInk = linked.filter(isInk);
           const additional = linked.filter((item) => !isInk(item));
           return <article className="printer-family-card" key={printer.id}>
-            <header>
+            <header className="printer-family-link" role="button" tabIndex={0} title={`Open ${printer.name} asset details`}
+              aria-label={`Open full asset page for ${printer.name}, ${printer.tag}`}
+              onClick={() => onOpenItem(printer.id)}
+              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(printer.id); } }}>
               <ModelStage url={glbUrl(printer.model)} label={`${printer.name} 3D model`} className="printer-model-stage" />
               <div className="printer-identity">
                 <small>{printer.modelNumber || 'Printer asset'}</small>
-                <button type="button" onClick={() => onOpenItem(printer.id)}>{printer.name}</button>
+                <strong>{printer.name}</strong>
                 <code>{printer.tag}</code>
               </div>
               <div className="printer-location">
                 <small>Printer location</small>
                 <strong>{printer.location || 'Unassigned'}</strong>
                 <span>{printer.room || 'No room recorded'}</span>
+                <em>Open full asset →</em>
               </div>
             </header>
 
             <div className="cmyk-grid">
               {COLORS.map((color) => {
                 const records = linkedInk.filter((item) => inkColor(item) === color.key);
+                if (records.length) return <InkRecordCard key={color.key} printer={printer} color={color} records={records} scannerHighlight={scannerHighlight} canManage={canManage} onOpenItem={onOpenItem} onQuickChange={quickTonerChange} />;
                 const item = records[0] || null;
                 const quantity = records.reduce((sum, record) => sum + Number(record.qty || 0), 0);
                 const activateTile = () => item && onOpenItem(item.id);
@@ -261,26 +331,40 @@ function Consumables({ items, usage, query, canManage, scannerAction, onScannerA
           </article>;
         })}
         {!visiblePrinters.length && <div className="consumables-empty">No printer assets match this view. Add printers to Inventory before assigning their supplies.</div>}
-      </div>
+      </CollapseRegion>
     </section>}
 
     {showPrinters && !!unmappedPrinterSupplies.length && <section className="unmapped-supplies">
-      <header className="consumables-section-title"><span><small>Needs setup</small><strong>Printer supplies not yet assigned</strong><p>Assign each stock record to the printers that use it so it appears in the correct printer section.</p></span><b>{unmappedPrinterSupplies.length}</b></header>
-      <div className="supply-tile-grid">{unmappedPrinterSupplies.map((item) => <SupplyTile key={item.id} item={item} highlighted={scannerHighlight === item.id} canManage={canManage} onOpenItem={onOpenItem} onMap={openMapping} onUse={beginUse} onReorder={onReorder} />)}</div>
+      <header className="consumables-section-title"><span><small>Needs setup</small><strong>Printer supplies not yet assigned</strong><p>Assign each stock record to the printers that use it so it appears in the correct printer section.</p></span><div className="consumables-section-actions"><b>{unmappedPrinterSupplies.length}</b><CollapseToggle collapsed={sectionCollapsed('unmapped')} label="unassigned printer supplies" onClick={() => toggleSection('unmapped')} /></div></header>
+      <CollapseRegion collapsed={sectionCollapsed('unmapped')} contentClassName="supply-tile-grid">{unmappedPrinterSupplies.map((item) => <SupplyTile key={item.id} item={item} highlighted={scannerHighlight === item.id} canManage={canManage} onOpenItem={onOpenItem} onMap={openMapping} onUse={beginUse} onReorder={onReorder} />)}</CollapseRegion>
+    </section>}
+
+    {showPrinterService && <section className="printer-service-consumables">
+      <header className="consumables-section-title"><span><small>Service stock setup</small><strong>Printer service consumables</strong><p>Manage every replaceable printer supply from one place. Each type remains visible even before its first stock record is created.</p></span><div className="consumables-section-actions"><b>{printerServiceSections.reduce((sum, type) => sum + type.records.length, 0)} records</b><CollapseToggle collapsed={sectionCollapsed('printer-service')} label="printer service consumables" onClick={() => toggleSection('printer-service')} /></div></header>
+      <CollapseRegion collapsed={sectionCollapsed('printer-service')} contentClassName="printer-service-section-list">
+        {printerServiceSections.map((type) => <section className="printer-service-type" key={type.id} data-empty={type.records.length ? undefined : 'true'}>
+          <header>
+            <ModelStage url={glbUrl(type.id)} label={`${type.label} 3D model`} />
+            <span><small>Printer consumable</small><strong>{type.label}</strong><p>{type.detail}</p></span>
+            <div><span className="printer-service-count"><b>{type.records.length}</b><small>stock record{type.records.length === 1 ? '' : 's'}</small></span><span className="printer-service-actions">{canManage && <button type="button" className="btn-primary" onClick={() => onCreateSupply(type.id, building)}>+ {type.records.length ? 'Add another' : 'Set up stock'}</button>}<CollapseToggle collapsed={sectionCollapsed(`service-${type.id}`)} label={type.label} onClick={() => toggleSection(`service-${type.id}`)} /></span></div>
+          </header>
+          <CollapseRegion collapsed={sectionCollapsed(`service-${type.id}`)}>{type.records.length ? <div className="supply-tile-grid">{type.records.map((item) => <SupplyTile key={item.id} item={item} highlighted={scannerHighlight === item.id} canManage={canManage} onOpenItem={onOpenItem} onMap={openMapping} onUse={beginUse} onReorder={onReorder} />)}</div> : <div className="printer-service-empty"><span aria-hidden="true">+</span><div><strong>No {type.label.toLowerCase()} recorded in {building}</strong><small>Create the first quantity-based stock record, then assign compatible printers, print its barcode, issue units, and track reorder levels.</small></div>{canManage && <button type="button" className="btn-ghost" onClick={() => onCreateSupply(type.id, building)}>Set up {type.label.toLowerCase()}</button>}</div>}</CollapseRegion>
+        </section>)}
+      </CollapseRegion>
     </section>}
 
     {otherGroups.map((group) => <section className="general-supply-group" key={group.name}>
-      <header className="consumables-section-title"><span><small>Single-use inventory</small><strong>{group.name}</strong><p>{group.items.length} stock record{group.items.length === 1 ? '' : 's'} in this category.</p></span></header>
-      <div className="supply-tile-grid">{group.items.map((item) => <SupplyTile key={item.id} item={item} highlighted={scannerHighlight === item.id} canManage={canManage} onOpenItem={onOpenItem} onMap={openMapping} onUse={beginUse} onReorder={onReorder} />)}</div>
+      <header className="consumables-section-title"><span><small>Single-use inventory</small><strong>{group.name}</strong><p>{group.items.length} stock record{group.items.length === 1 ? '' : 's'} in this category.</p></span><CollapseToggle collapsed={sectionCollapsed(`group-${group.name}`)} label={group.name} onClick={() => toggleSection(`group-${group.name}`)} /></header>
+      <CollapseRegion collapsed={sectionCollapsed(`group-${group.name}`)} contentClassName="supply-tile-grid">{group.items.map((item) => <SupplyTile key={item.id} item={item} highlighted={scannerHighlight === item.id} canManage={canManage} onOpenItem={onOpenItem} onMap={openMapping} onUse={beginUse} onReorder={onReorder} />)}</CollapseRegion>
     </section>)}
 
     {!showPrinters && !otherGroups.length && <div className="consumables-empty">No single-use supplies match this view.</div>}
 
     <section className="consumables-usage">
-      <header><span><strong>Recent usage</strong><small>Who received each supply and why it left stock</small></span><b>{visibleUsage.length} records</b></header>
-      <div className="consumables-usage-head"><span>Supply</span><span>Qty</span><span>Issued to</span><span>Department</span><span>Purpose</span><span>Date</span></div>
+      <header><span><strong>Recent usage</strong><small>Who received each supply and why it left stock</small></span><div className="consumables-section-actions"><b>{visibleUsage.length} records</b><CollapseToggle collapsed={sectionCollapsed('usage')} label="recent usage" onClick={() => toggleSection('usage')} /></div></header>
+      <CollapseRegion collapsed={sectionCollapsed('usage')}><div className="consumables-usage-head"><span>Supply</span><span>Qty</span><span>Issued to</span><span>Department</span><span>Purpose</span><span>Date</span></div>
       {visibleUsage.slice(0, 30).map((entry) => <div className="consumables-usage-row" key={entry.id}><strong>{entry.itemName}</strong><b>{entry.qty}</b><span>{entry.issuedTo}</span><span>{entry.department || '—'}</span><span>{entry.purpose}</span><span>{String(entry.usedAt).slice(0, 10)}</span></div>)}
-      {!visibleUsage.length && <div className="consumables-empty compact">No single-use stock has been issued yet.</div>}
+      {!visibleUsage.length && <div className="consumables-empty compact">No single-use stock has been issued yet.</div>}</CollapseRegion>
     </section>
 
     {tonerAction && <Modal title={`${tonerAction.color.label} toner · ${tonerAction.printer.name}`} subtitle={`${tonerAction.printer.tag} · ${tonerAction.printer.location || 'Unassigned'} · ${tonerAction.printer.room || 'No room'}`} onClose={() => setTonerAction(null)}>

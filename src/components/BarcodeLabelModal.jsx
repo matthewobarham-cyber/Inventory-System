@@ -40,7 +40,7 @@ export function BarcodeGraphic({ value, height = 54, width = 2, displayValue = t
   return <svg ref={svgRef} role="img" aria-label={`Barcode for ${value}`} style={{ display: 'block', maxWidth: '100%', height: 'auto', overflow: 'visible' }} />;
 }
 
-export default function BarcodeLabelModal({ open, item, onClose }) {
+export default function BarcodeLabelModal({ open, item, onClose, onAddToPrintSheet, isInPrintSheet = false }) {
   useEffect(() => {
     if (!open) return undefined;
     const onKeyDown = (event) => {
@@ -77,6 +77,13 @@ export default function BarcodeLabelModal({ open, item, onClose }) {
 
         <div className="barcode-modal-controls" style={{ padding: '14px 18px', borderTop: '1px solid #eceff3', display: 'flex', justifyContent: 'flex-end', gap: 9 }}>
           <button type="button" className="btn-ghost" onClick={onClose} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Close</button>
+          {onAddToPrintSheet && <button
+            type="button"
+            className="btn-ghost"
+            disabled={isInPrintSheet}
+            onClick={() => onAddToPrintSheet(item)}
+            style={{ height: 36, padding: '0 15px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}
+          >{isInPrintSheet ? 'Added to print sheet' : 'Add to Scanner Console'}</button>}
           <button type="button" className="btn-primary" onClick={() => window.print()} style={{ height: 36, padding: '0 15px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}>Open print preview</button>
         </div>
       </div>

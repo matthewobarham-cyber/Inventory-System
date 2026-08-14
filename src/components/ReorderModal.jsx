@@ -36,7 +36,7 @@ export default function ReorderModal({ open, item, form, error, vendors = [], di
 
         <div className="reorder-modal-body">
           <div className="reorder-item-summary">
-            <span style={thumbStyle(item.model, 44, 7)}></span>
+            <span style={thumbStyle(item, 44, 7)}></span>
             <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <span style={{ fontSize: 13.5, fontWeight: 600 }}>{item.name}</span>
               <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11, color: '#7b8794' }}>{item.tag} · {item.location} · {item.room}</span>

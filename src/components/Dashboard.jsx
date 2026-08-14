@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILDINGS,
-  glbUrl,
+  glbUrlForItem,
   iso,
   isLowStock,
   longDate,
@@ -613,7 +613,7 @@ function Dashboard({
                       aria-hidden="true"
                     />
                     <canvas
-                      data-model={glbUrl(item.model)}
+                      data-model={glbUrlForItem(item)}
                       style={{
                         position: "absolute",
                         zIndex: 2,
@@ -726,7 +726,7 @@ function Dashboard({
                 <span className="dashboard-watch-model">
                   <span className="dashboard-model-loader" aria-hidden="true" />
                   <canvas
-                    data-model={glbUrl(item.model)}
+                    data-model={glbUrlForItem(item)}
                     style={{
                       position: "absolute",
                       zIndex: 2,

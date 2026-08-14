@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { IconScan, IconX } from '../icons.jsx';
-import { effStatus, glbUrl } from '../data.js';
+import { effStatus, glbUrl, glbUrlForItem } from '../data.js';
 import { BarcodeGraphic } from './BarcodeLabelModal.jsx';
 
 const ACTIONS = {
@@ -56,7 +56,7 @@ export default function GlobalScanModal({ scan, item, reserved, canManageLoans, 
           <section className="global-scan-overview">
             <div className="global-scan-visual-panel">
               <div className="global-scan-beam" aria-hidden="true" />
-              {modelId ? <div className="global-scan-item-model" data-detail-model={glbUrl(modelId)} data-detail-interactive="false" data-detail-spin="true" data-detail-fps="60" data-detail-scale="1.3" aria-label={`${item?.name || reserved?.equipmentType || 'Scanned equipment'} 3D model`}><span className="dashboard-model-loader" aria-hidden="true" /></div> : <div className="global-scan-brand-mark" aria-hidden="true"><IconScan size={34} /><span>NEW</span></div>}
+              {modelId ? <div className="global-scan-item-model" data-detail-model={item ? glbUrlForItem(item) : glbUrl(modelId)} data-detail-interactive="false" data-detail-spin="true" data-detail-fps="60" data-detail-scale="1.3" aria-label={`${item?.name || reserved?.equipmentType || 'Scanned equipment'} 3D model`}><span className="dashboard-model-loader" aria-hidden="true" /></div> : <div className="global-scan-brand-mark" aria-hidden="true"><IconScan size={34} /><span>NEW</span></div>}
               <span className={`global-scan-status ${statusKey}`}><i />{status}</span>
             </div>
 

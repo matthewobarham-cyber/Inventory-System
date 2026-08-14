@@ -34,7 +34,7 @@ function ScannerMark() {
   return <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M11 7H7v10M37 7h4v10M11 41H7V31m30 10h4V31M13 14v20m5-20v20m5-20v20m7-20v20m5-20v20M26 14v20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>;
 }
 
-function Scan({ items, placements = [], recentScans, reservedBarcodes = [], canManageLoans, isActive = true, onScan, onSimulate, onOpenItem, onOpenStocktakes, onGenerateBlankLabels }) {
+function Scan({ items, placements = [], recentScans, reservedBarcodes = [], canManageLoans, isActive = true, onScan, onSimulate, onOpenItem, onOpenStocktakes, onGenerateBlankLabels, labelQueueIds = [], onLabelQueueChange, labelStudioFocusSignal = 0 }) {
   const [text, setText] = useState('');
   const [mode, setMode] = useState(canManageLoans ? 'smart' : 'lookup');
   const [feedback, setFeedback] = useState(null);
@@ -175,7 +175,7 @@ function Scan({ items, placements = [], recentScans, reservedBarcodes = [], canM
       </div>
     </section>
 
-    <ScannerLabelStudio items={items} placements={placements} />
+    <ScannerLabelStudio items={items} placements={placements} selectedIds={labelQueueIds} setSelectedIds={onLabelQueueChange} focusSignal={labelStudioFocusSignal} />
 
     {feedback && <section className={`scanner-result ${feedback.error ? feedback.warning ? 'warning' : 'error' : 'success'}`} role="status">
       <div className="scanner-result-mark">{feedback.error ? feedback.warning ? '!' : '×' : '✓'}</div>

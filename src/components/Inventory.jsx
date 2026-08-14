@@ -1,12 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MODELS, glbUrl, money, thumbStyle, statusTagStyle, CARD_MIN_WIDTH, effStatus } from '../data.js';
+import { MODELS, glbUrl, glbUrlForItem, money, thumbStyle, statusTagStyle, CARD_MIN_WIDTH, effStatus } from '../data.js';
 import BulkBarcodeModal from './BulkBarcodeModal.jsx';
 import SortableHeader, { nextSort, sortRows } from './SortableHeader.jsx';
 import { Inv3D } from '../three-engine.js';
 import StocktakeFlag from './StocktakeFlag.jsx';
 
-const STATUS_OPTIONS = ['All statuses', 'In stock', 'On loan', 'Low stock', 'Maintenance', 'Retired'];
+const STATUS_OPTIONS = ['All statuses', 'In stock', 'On loan', 'Low stock', 'Maintenance', 'Disposed', 'Retired'];
 const RECENT_INVENTORY_DAYS = 7;
 const ALL_BUILDINGS = '__all_buildings__';
 const INVENTORY_WEB_POSITIONS_KEY = 'msbm.inventoryWebNodePositions.v1';
@@ -61,15 +61,13 @@ function TypePreview({ model }) {
   );
 }
 
-function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
-  const [category, setCategory] = useState('');
+function InventoryWeb({ groupBy, options, onChangeMode, onSelect, category, onCategoryChange }) {
   const [nodePositions, setNodePositions] = useState({});
   const [draggingNode, setDraggingNode] = useState('');
   const canvasRef = useRef(null);
   const nodePositionsRef = useRef(nodePositions);
   const dragRef = useRef(null);
   const suppressClickRef = useRef('');
-  useEffect(() => setCategory(''), [groupBy]);
   useEffect(() => {
     const loaded = loadInventoryWebPositions();
     nodePositionsRef.current = loaded;
@@ -137,7 +135,7 @@ function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
   };
   const activateNode = (option) => {
     if (suppressClickRef.current === option.value) { suppressClickRef.current = ''; return; }
-    if (option.category) setCategory(option.value);
+    if (option.category) onCategoryChange(option.value);
     else onSelect(option.value);
   };
 
@@ -157,7 +155,7 @@ function InventoryWeb({ groupBy, options, onChangeMode, onSelect }) {
           <button type="button" data-active={groupBy === 'location'} onClick={() => onChangeMode('location')}><WebNodeIcon category="" location /> Locations</button>
           <button type="button" data-active={groupBy === 'type'} onClick={() => onChangeMode('type')}><WebNodeIcon category="Computers" /> Equipment</button>
         </span>
-        {category && <button type="button" className="inventory-web-back" onClick={() => setCategory('')}>← All categories</button>}
+        {category && <button type="button" className="inventory-web-back" onClick={() => onCategoryChange('')}>← All categories</button>}
       </div>
 
       <div ref={canvasRef} className="inventory-web-canvas" style={{ height: webHeight }}>
@@ -236,6 +234,8 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
   const [section, setSection] = useState('records');
   const [groupBy, setGroupBy] = useState('location');
   const [selectedGroup, setSelectedGroup] = useState('');
+  const [webCategory, setWebCategory] = useState('');
+  const [recordOrigin, setRecordOrigin] = useState(null);
   const [page, setPage] = useState(1);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [bulkBarcodeOpen, setBulkBarcodeOpen] = useState(false);
@@ -324,8 +324,23 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
     setSection('records');
     setGroupBy('location');
     setSelectedGroup('');
+    setWebCategory('');
+    setRecordOrigin(null);
     setPage(1);
   }, [resetKey]);
+
+  useEffect(() => {
+    if (!filters.query.trim()) return;
+    // A text search is an item-level action. Leave the visual inventory web and
+    // show matching asset records immediately across every building.
+    setSection('records');
+    setGroupBy('location');
+    setSelectedGroup(ALL_BUILDINGS);
+    setWebCategory('');
+    setRecordOrigin(null);
+    setView('grid');
+    setPage(1);
+  }, [filters.query, setView]);
 
   const typeList = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
@@ -358,12 +373,33 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
   }), [typeSummary, summarySort]);
 
   const openTypeRecords = (modelId) => {
+    setRecordOrigin({ section, groupBy, selectedGroup, webCategory, page });
     setSection('records');
     setGroupBy('type');
     setSelectedGroup(modelId);
     setShowArchived(false);
     setPage(1);
     setFilters((current) => ({ ...current, query: '', fCategory: 'All categories', fStatus: 'All statuses' }));
+  };
+
+  const openWebRecords = (value) => {
+    setRecordOrigin({ section: 'records', groupBy, selectedGroup: '', webCategory, page });
+    setSelectedGroup(value);
+    setPage(1);
+  };
+
+  const returnToPreviousInventoryView = () => {
+    if (!recordOrigin) {
+      setSelectedGroup('');
+      setPage(1);
+      return;
+    }
+    setSection(recordOrigin.section);
+    setGroupBy(recordOrigin.groupBy);
+    setSelectedGroup(recordOrigin.selectedGroup);
+    setWebCategory(recordOrigin.webCategory);
+    setPage(recordOrigin.page);
+    setRecordOrigin(null);
   };
 
   const selectedTypeModel = groupBy === 'type' && selectedGroup
@@ -374,18 +410,18 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
     <div ref={inventoryTopRef} style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1560 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {section === 'records' && selectedGroup && (
-          <button type="button" className="btn-ghost" onClick={() => { setSelectedGroup(''); setPage(1); }}
+          <button type="button" className="btn-ghost" onClick={returnToPreviousInventoryView}
             style={{ height: 34, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 8, color: '#0a3d7c', fontSize: 12, fontWeight: 650 }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/><path d="M9 12h10"/></svg>
-            Back to inventory web
+            Back to previous view
           </button>
         )}
         <div style={{ display: 'flex', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 8, overflow: 'hidden' }}>
-          <button type="button" onClick={() => setSection('records')}
+          <button type="button" onClick={() => { setSection('records'); setRecordOrigin(null); }}
             style={{ height: 34, padding: '0 12px', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', background: section === 'records' ? '#0a3d7c' : '#fff', color: section === 'records' ? '#fff' : '#5b6672' }}>Inventory records</button>
-          <button type="button" onClick={() => setSection('types')}
+          <button type="button" onClick={() => { setSection('types'); setRecordOrigin(null); }}
             style={{ height: 34, padding: '0 12px', border: 'none', borderLeft: '1px solid #dfe3e9', fontSize: 12, fontWeight: 600, cursor: 'pointer', background: section === 'types' ? '#0a3d7c' : '#fff', color: section === 'types' ? '#fff' : '#5b6672' }}>Equipment types</button>
-          <button type="button" onClick={() => { setSection('summary'); setFilters((current) => ({ ...current, query: '', fCategory: 'All categories' })); }}
+          <button type="button" onClick={() => { setSection('summary'); setRecordOrigin(null); setFilters((current) => ({ ...current, query: '', fCategory: 'All categories' })); }}
             style={{ height: 34, padding: '0 12px', border: 'none', borderLeft: '1px solid #dfe3e9', fontSize: 12, fontWeight: 600, cursor: 'pointer', background: section === 'summary' ? '#0a3d7c' : '#fff', color: section === 'summary' ? '#fff' : '#5b6672' }}>Item type summary</button>
         </div>
         <select value={filters.fCategory} onChange={(e) => setFilters((f) => ({ ...f, fCategory: e.target.value }))}
@@ -489,16 +525,18 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
           {typeList.length === 0 && <div style={{ padding: 44, textAlign: 'center', fontSize: 13, color: '#7b8794' }}>No equipment types match this search and category.</div>}
         </>
       ) : !selectedGroup ? (
-        <InventoryWeb key={`${groupBy}-${resetKey}`} groupBy={groupBy} options={groupOptions} onChangeMode={(mode) => { setGroupBy(mode); setSelectedGroup(''); }} onSelect={(value) => { setSelectedGroup(value); setPage(1); }} />
+        <InventoryWeb key={`${groupBy}-${resetKey}`} groupBy={groupBy} options={groupOptions} category={webCategory} onCategoryChange={setWebCategory} onChangeMode={(mode) => { setGroupBy(mode); setSelectedGroup(''); setWebCategory(''); setRecordOrigin(null); }} onSelect={openWebRecords} />
       ) : view === 'grid' ? (
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill,minmax(${CARD_MIN_WIDTH}px,1fr))`, gap: 16 }}>
           {pageItems.map((it) => {
             const st = effStatus(it);
+            const disposed = st === 'Disposed';
             const recentDate = recentInventoryDate(it);
             return (
-              <div key={it.id} data-card="1" data-recent={recentDate ? 'true' : undefined} data-stocktake-state={it.stocktakeState || undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }} style={{ background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden', cursor: 'pointer' }}>
+              <div key={it.id} className="inventory-record-card" data-card="1" data-disposed={disposed ? 'true' : undefined} data-recent={recentDate ? 'true' : undefined} data-stocktake-state={it.stocktakeState || undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }} style={{ background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden', cursor: 'pointer' }}>
                 <div style={{ position: 'relative', height: 150, background: 'radial-gradient(closest-side,#eef2f7,#f8f9fb)' }}>
-                  <canvas data-model={glbUrl(it.model)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}></canvas>
+                  <canvas data-model={glbUrlForItem(it)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}></canvas>
+                  {disposed && <span className="inventory-disposed-x" aria-hidden="true">×</span>}
                   {recentDate && <span className="inventory-recent-badge">Recently added · {recentDateLabel(recentDate)}</span>}
                   <span style={{
                     position: 'absolute', top: 9, right: 9, padding: '3px 8px', borderRadius: 999, fontSize: 10, fontWeight: 600,
@@ -516,7 +554,7 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(event) => event.stopPropagation()}>
                     <span style={{ flex: 1, fontSize: 10.5, color: '#7b8794' }}>{it.assignedTo ? `Assigned: ${it.assignedTo}` : 'Unassigned'}</span>
-                    {canDelete && <button type="button" className="btn-ghost-danger" onClick={() => onDelete(it.id)} style={{ height: 28, padding: '0 8px', borderRadius: 7, fontSize: 10.5 }}>Delete</button>}
+                    {canDelete && !disposed && <button type="button" className="btn-ghost-danger" onClick={() => onDelete(it.id)} style={{ height: 28, padding: '0 8px', borderRadius: 7, fontSize: 10.5 }}>Delete</button>}
                   </div>
                 </div>
               </div>
@@ -530,12 +568,13 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
           </div>
           {pageItems.map((it) => {
             const st = effStatus(it);
+            const disposed = st === 'Disposed';
             const recentDate = recentInventoryDate(it);
             return (
-              <div key={it.id} data-row="1" data-recent={recentDate ? 'true' : undefined} data-stocktake-state={it.stocktakeState || undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }}
+              <div key={it.id} className="inventory-record-row" data-row="1" data-disposed={disposed ? 'true' : undefined} data-recent={recentDate ? 'true' : undefined} data-stocktake-state={it.stocktakeState || undefined} role="button" tabIndex={0} onClick={() => onOpenItem(it.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenItem(it.id); } }}
                 style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1.25fr 1fr 1.15fr .7fr .75fr .65fr', gap: 10, alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f2f4f7', cursor: 'pointer', fontSize: 12.5 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                  <span style={thumbStyle(it.model, 30, 5)}></span>
+                  <span className="inventory-row-thumbnail" style={thumbStyle(it.model, 30, 5)}>{disposed && <i className="inventory-disposed-row-x" aria-hidden="true">×</i>}</span>
                   <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
                     <span style={{ maxWidth: '100%', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}<StocktakeFlag item={it} /></span>
                     {recentDate && <span className="inventory-recent-badge inventory-recent-badge--row">Recently added · {recentDateLabel(recentDate)}</span>}
@@ -547,7 +586,7 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
                 <span style={{ color: '#5b6672', fontSize: 11.5 }}>{it.assignedTo || it.borrower || '—'}</span>
                 <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 11.5 }}>{it.qty}</span>
                 <span style={{ color: '#5b6672', fontSize: 11.5 }}>{it.condition}</span>
-                <span onClick={(event) => event.stopPropagation()}>{canDelete && <button type="button" className="btn-ghost-danger" onClick={() => onDelete(it.id)} style={{ height: 27, padding: '0 7px', borderRadius: 6, fontSize: 10.5 }}>Delete</button>}</span>
+                <span onClick={(event) => event.stopPropagation()}>{canDelete && !disposed && <button type="button" className="btn-ghost-danger" onClick={() => onDelete(it.id)} style={{ height: 27, padding: '0 7px', borderRadius: 6, fontSize: 10.5 }}>Delete</button>}</span>
               </div>
             );
           })}
@@ -574,7 +613,7 @@ function Inventory({ resetKey, items, filters, setFilters, view, setView, onOpen
               <button type="button" onClick={() => setViewingModel(null)} aria-label="Close 3D model viewer">×</button>
             </header>
             <div className="equipment-model-modal-stage">
-              <canvas className="equipment-preview__canvas" data-model={glbUrl(viewingModel.id)} aria-label={`${viewingModel.name} interactive 3D model`} />
+              <div className="equipment-model-modal-viewer" data-detail-model={glbUrl(viewingModel.id)} data-detail-interactive="true" data-detail-spin="true" data-detail-fps="60" data-detail-scale="1.3" aria-label={`${viewingModel.name} interactive 3D model`} />
               <span className="equipment-model-modal-hint">Drag to rotate · Scroll to zoom</span>
             </div>
             <footer><span>{viewingModel.cons ? 'Consumable item' : 'Tracked asset'}</span><span>{money(viewingModel.cost)} typical unit cost</span></footer>

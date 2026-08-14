@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Inv3D } from '../three-engine.js';
-import { glbUrl, money, longDate, daysBetween, statusTagStyle, today, iso, SHOW_WATERMARK, effStatus } from '../data.js';
+import { glbUrlForItem, money, longDate, daysBetween, statusTagStyle, today, iso, SHOW_WATERMARK, effStatus } from '../data.js';
 import { IconArrowLeft, IconRefresh, IconCheckoutArrow } from '../icons.jsx';
 import BarcodeLabelModal, { BarcodeGraphic } from './BarcodeLabelModal.jsx';
 import { bookValueFor, expectedReplacementFor } from '../lifecycle.js';
@@ -8,7 +8,8 @@ import StocktakeFlag from './StocktakeFlag.jsx';
 
 export default function ItemDetail({
   item, history, maintenanceTickets = [], lifecycleActions = [], canLoanNow, isStaff, borrowingApproved = false, canEdit, canDelete, onBack, onOpenCheckout, onRequestBorrow, onOpenEdit, onDelete, onGenerateInvoice, onReorder, onOpenLifecycle,
-  pendingOrder, pendingPlacement, onViewOrder, onOpenPlacements
+  pendingOrder, pendingPlacement, onViewOrder, onOpenPlacements, onAddBarcodeToPrintSheet, barcodeQueued = false,
+  canToggleBorrowing = false, onToggleBorrowing
 }) {
   const [spin, setSpin] = useState(true);
   const [labelOpen, setLabelOpen] = useState(false);
@@ -90,19 +91,20 @@ export default function ItemDetail({
   ];
 
   const st = effStatus(item);
-  const canCheckout = canLoanNow && borrowingApproved && !item.archived && !item.consumable && item.status === 'In stock';
+  const disposed = st === 'Disposed';
+  const canCheckout = canLoanNow && borrowingApproved && !disposed && !item.archived && !item.consumable && item.status === 'In stock';
 
   return (
     <div style={{ maxWidth: 1420, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <button type="button" className="btn-link" onClick={onBack} style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 500 }}>
         <IconArrowLeft />
-        <span>{item.consumable ? 'Back to consumables' : 'Back to inventory'}</span>
+        <span>Back to previous screen</span>
       </button>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 20, alignItems: 'stretch' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
           <div style={{ height: 550, display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, overflow: 'hidden' }}>
             <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-              <div data-detail-model={glbUrl(item.model)}
+              <div data-detail-model={glbUrlForItem(item)}
                 style={{ position: 'relative', height: '100%', background: 'radial-gradient(closest-side,#eaeff6,#f8f9fb)', cursor: 'grab' }}></div>
               {SHOW_WATERMARK && (
                 <img src="brand/msbm-lockup.png" alt="" style={{ position: 'absolute', left: 16, bottom: 14, width: 84, height: 'auto', opacity: .15, pointerEvents: 'none' }} />
@@ -161,22 +163,34 @@ export default function ItemDetail({
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ height: 550, display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, padding: 18, overflow: 'hidden' }}>
+          <div style={{ minHeight: 550, display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 10, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
                 <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', color: '#7b8794' }}>{item.category}</span>
                 <span style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-.02em', lineHeight: 1.2 }}>{item.name}</span>
                 <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, color: '#0b4a94' }}>{item.tag}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {canToggleBorrowing && !disposed && !item.consumable && <button
+                  type="button"
+                  role="switch"
+                  aria-checked={borrowingApproved}
+                  title={borrowingApproved ? 'Block this device from borrowing' : 'Allow this device to be borrowed'}
+                  onClick={() => onToggleBorrowing?.(!borrowingApproved)}
+                  style={{ minHeight: 34, padding: '5px 9px 5px 11px', display: 'inline-flex', alignItems: 'center', gap: 9, border: `1px solid ${borrowingApproved ? '#9ed3bb' : '#d4dbe2'}`, borderRadius: 999, color: borrowingApproved ? '#155e3f' : '#53616e', background: borrowingApproved ? '#eaf7f0' : '#f3f5f7', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                >
+                  <span>{borrowingApproved ? 'Loanable' : 'Restricted'}</span>
+                  <span aria-hidden="true" style={{ width: 30, height: 18, padding: 2, display: 'flex', justifyContent: borrowingApproved ? 'flex-end' : 'flex-start', alignItems: 'center', borderRadius: 999, background: borrowingApproved ? '#23845f' : '#9aa5af', transition: 'background .18s ease' }}><i style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(20,35,45,.25)' }} /></span>
+                </button>}
                 <button type="button" onClick={() => setLabelOpen(true)} title="Preview barcode label" style={{ padding: '7px 9px', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 8, cursor: 'pointer', maxWidth: 190 }}>
                   <BarcodeGraphic value={item.tag} height={30} width={1.3} displayValue={false} />
                 </button>
                 <span style={statusTagStyle(st)}>{st}</span>
               </div>
             </div>
+            {disposed && <div className="asset-disposed-notice" role="status"><span aria-hidden="true">×</span><span><strong>This item is disposed</strong><small>Management approved this asset for disposal. Lending, assignment, reordering, editing, and other operational actions are locked. The record remains available for audit and history.</small></span></div>}
             {['Missing', 'Wrong location', 'Quantity mismatch'].includes(item.stocktakeState) && <div className={`stocktake-asset-alert ${item.stocktakeState === 'Missing' ? 'missing' : 'warning'}`}><StocktakeFlag item={item} label /><span><strong>{item.stocktakeState === 'Missing' ? 'This asset was not found during physical verification.' : item.stocktakeState === 'Wrong location' ? 'This asset was found outside its recorded location.' : 'The physical quantity did not match the inventory record.'}</strong><small>{item.stocktakeSessionTitle || item.stocktakeSessionId}{item.stocktakeScope ? ` · ${item.stocktakeScope}` : ''}</small></span></div>}
-            {!item.consumable && <div style={{ marginTop: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8, borderRadius: 8, background: borrowingApproved ? '#eaf5ee' : '#f3f5f7', color: borrowingApproved ? '#155e3f' : '#5e6974', fontSize: 11.5, fontWeight: 600 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: borrowingApproved ? '#1c7c54' : '#8a96a2' }} />{borrowingApproved ? 'Approved for TSR checkout and staff requests' : 'Restricted from borrowing'}</div>}
+            {!item.consumable && <div style={{ marginTop: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8, borderRadius: 8, background: disposed ? '#f1f2f4' : borrowingApproved ? '#eaf5ee' : '#f3f5f7', color: disposed ? '#a01a12' : borrowingApproved ? '#155e3f' : '#5e6974', fontSize: 11.5, fontWeight: 600 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: disposed ? '#c9362e' : borrowingApproved ? '#1c7c54' : '#8a96a2' }} />{disposed ? 'Disposed — borrowing permanently locked' : borrowingApproved ? 'Approved for TSR checkout and staff requests' : 'Restricted from borrowing'}</div>}
             {pendingOrder && (
               <button type="button" onClick={() => onViewOrder(pendingOrder.id)} style={{ marginTop: 10, minHeight: 34, padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 8, background: '#fdf6e9', border: '1px solid #f1d5ad', borderRadius: 8, color: '#8a5209', textAlign: 'left', cursor: 'pointer' }}>
                 <span style={{ width: 7, height: 7, flex: 'none', borderRadius: '50%', background: '#b8710f' }}></span>
@@ -191,15 +205,15 @@ export default function ItemDetail({
                 <span style={{ fontSize: 10.5, fontWeight: 700 }}>Open intake →</span>
               </button>
             )}
-            <div style={{ marginTop: pendingOrder || pendingPlacement ? 9 : 16, flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: '#eceff3', border: '1px solid #eceff3', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ marginTop: pendingOrder || pendingPlacement ? 9 : 16, display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 1, background: '#eceff3', border: '1px solid #eceff3', borderRadius: 8, overflow: 'hidden' }}>
               {fields.map((fd) => (
-                <div key={fd.label} style={{ background: '#fff', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div key={fd.label} style={{ minWidth: 0, background: '#fff', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: '#8d99a6' }}>{fd.label}</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 500 }}>{fd.value}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 500, overflowWrap: 'anywhere' }}>{fd.value}</span>
                 </div>
               ))}
             </div>
-            <div data-action-row="1" style={{ marginTop: 16, flex: 'none', display: 'flex', flexWrap: 'nowrap', gap: 7, overflowX: 'auto', scrollbarWidth: 'none' }}>
+            <div data-action-row="1" style={{ marginTop: 16, flex: 'none', display: 'flex', flexWrap: 'wrap', gap: 7 }}>
               {canCheckout && (
                 <button type="button" className="btn-primary" onClick={() => onOpenCheckout(item.id)} style={{ height: 36, display: 'flex', alignItems: 'center', gap: 7, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}>
                   <IconCheckoutArrow />
@@ -218,15 +232,22 @@ export default function ItemDetail({
                 <button type="button" className="btn-ghost" onClick={onReorder} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Reorder</button>
               )}
               {canEdit && (
-                <button type="button" className="btn-ghost" onClick={onOpenLifecycle} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Lifecycle</button>
+                <button type="button" className="btn-ghost" onClick={onOpenLifecycle} title={`View detailed lifecycle for ${item.name}`} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Lifecycle details</button>
               )}
+              {disposed && <button type="button" className="btn-ghost" onClick={onOpenLifecycle} title={`View disposal and lifecycle history for ${item.name}`} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>View lifecycle history</button>}
               {canDelete && (
                 <button type="button" className="btn-ghost-danger" onClick={onDelete} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Delete permanently</button>
               )}
               {canDelete && item.invoiceRequired && !item.invoiceGenerated && (
                 <button type="button" className="btn-ghost" onClick={onGenerateInvoice} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Generate invoice</button>
               )}
-              <button type="button" className="btn-ghost" onClick={() => setLabelOpen(true)} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Preview / print barcode</button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => onAddBarcodeToPrintSheet?.(item)}
+                title="Send this barcode to the Scanner Console print queue"
+                style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}
+              >Print barcode</button>
             </div>
           </div>
 
@@ -262,7 +283,7 @@ export default function ItemDetail({
           </div>
         </div>
       </div>
-      <BarcodeLabelModal open={labelOpen} item={item} onClose={() => setLabelOpen(false)} />
+      <BarcodeLabelModal open={labelOpen} item={item} onClose={() => setLabelOpen(false)} onAddToPrintSheet={onAddBarcodeToPrintSheet} isInPrintSheet={barcodeQueued} />
     </div>
   );
 }

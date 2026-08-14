@@ -81,10 +81,10 @@ const MODEL_ASSET_VERSION = {
   'other-equipment': 3, headphones: 3, 'pa-speaker': 3, 'paper-shredder': 3,
   'poe-injector': 3, 'portable-generator': 3, 'portable-monitor': 3, 'power-bank': 3,
   'power-distribution-unit': 3, 'power-inverter': 3,
-  'presentation-clicker': 3, 'professional-microphone': 3, 'projector-screen': 3,
+  'presentation-clicker': 3, 'professional-microphone': 3, 'projector-screen': 5,
   'ptz-camera': 3, 'rack-server': 3, 'receipt-printer': 3, refrigerator: 3,
   'replacement-laptop-keyboard': 3, 'room-scheduling-panel': 3, 'sd-memory-card': 3,
-  'network-switch': 3, '3d-printer': 3, 'ac-power-adapter': 3, 'access-control-panel': 3,
+  'network-switch': 3, '3d-printer': 3, 'ac-power-adapter': 4, 'aa-battery-pack': 3, 'access-control-panel': 3,
   'air-conditioner': 3, 'all-in-one-desktop': 3, 'audio-mixer': 3, 'label-printer': 3,
   'binding-machine': 3, 'biometric-reader': 3,
   'thin-client': 3, ups: 3, 'ups-replacement-battery': 3, 'usb-ethernet-adapter': 3,
@@ -94,14 +94,38 @@ const MODEL_ASSET_VERSION = {
   'wifi-router': 3, 'wired-mouse': 3, 'wireless-access-point': 3,
   'wireless-microphone-kit': 3, 'wireless-mouse': 3, 'xlr-cable': 3,
   'sfp-module': 3, 'smart-board': 3, 'smart-television': 3, 'solid-state-drive': 3,
-  'standing-fan': 3, 'surge-protector': 3, tablet: 4, 'tape-drive': 3,
+  'standing-fan': 4, 'surge-protector': 3, tablet: 4, 'tape-drive': 3,
   'technician-toolkit': 4, teleprompter: 3,
   'fiber-optic-patch-cable': 3, 'firewall-appliance': 3, 'flatbed-scanner': 3,
-  keyboard: 3, 'graphics-workstation': 3, 'printer-toner': 3
+  keyboard: 3, 'graphics-workstation': 3, 'printer-toner': 3,
+  'printer-drum-unit': 4, 'printer-fuser-unit': 4, 'printer-imaging-unit': 4,
+  'printer-paper-ream': 4, 'printer-staple-kit': 4, 'printer-transfer-belt': 4
 };
 const modelAssetVersion = id => MODEL_ASSET_VERSION[id] ? `?v=${MODEL_ASSET_VERSION[id]}` : '';
 const MODEL_GLBS = { 'printer-toner': 'generated/models/toner-black.glb' };
 export const glbUrl = id => (MODEL_GLBS[id] || (PACKS[MODEL_BY[id].pack] + 'models/' + id + '.glb')) + modelAssetVersion(id);
+export function tonerColorForItem(item) {
+  if (!item || item.model !== 'printer-toner') return '';
+  const text = `${item.color || ''} ${item.name || ''} ${item.stockCode || ''}`.toLowerCase();
+  if (/cyan|(?:^|\s)c(?:\s|$)/.test(text)) return 'cyan';
+  if (/magenta|(?:^|\s)m(?:\s|$)/.test(text)) return 'magenta';
+  if (/yellow|(?:^|\s)y(?:\s|$)/.test(text)) return 'yellow';
+  return 'black';
+}
+export const glbUrlForItem = item => {
+  const tonerColor = tonerColorForItem(item);
+  return tonerColor ? `generated/models/toner-${tonerColor}.glb${modelAssetVersion('printer-toner')}` : glbUrl(item.model);
+};
+const TONER_THUMB_COLORS = {
+  cyan: { accent: '#00a9c7', dark: '#007d99', letter: 'C' },
+  magenta: { accent: '#df2472', dark: '#aa1652', letter: 'M' },
+  yellow: { accent: '#e0b300', dark: '#ad8500', letter: 'Y' },
+  black: { accent: '#2e3339', dark: '#111419', letter: 'K' }
+};
+const TONER_THUMBNAILS = Object.fromEntries(Object.entries(TONER_THUMB_COLORS).map(([key, color]) => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 82"><defs><linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#30363d"/><stop offset=".55" stop-color="#14181d"/><stop offset="1" stop-color="#080a0d"/></linearGradient><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${color.accent}"/><stop offset="1" stop-color="${color.dark}"/></linearGradient><filter id="s"><feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity=".28"/></filter></defs><ellipse cx="61" cy="70" rx="43" ry="6" fill="#8fa1af" opacity=".24"/><g filter="url(#s)"><path d="M18 31h78c8 0 13 6 13 13v13c0 7-6 12-13 12H25c-9 0-15-6-15-14V42c0-6 3-10 8-11Z" fill="url(#b)"/><path d="M91 35h20c5 0 8 4 8 9v10c0 5-3 8-8 8H94Z" fill="#090b0e"/><rect x="31" y="23" width="48" height="11" rx="5.5" fill="url(#a)"/><rect x="43" y="18" width="27" height="7" rx="3.5" fill="${color.accent}"/><rect x="29" y="44" width="30" height="16" rx="4" fill="url(#a)"/><text x="44" y="56" fill="white" font-family="Arial,sans-serif" font-size="13" font-weight="700" text-anchor="middle">${color.letter}</text><path d="M20 37h5v27h-5c-5 0-8-4-8-9V46c0-5 3-9 8-9Z" fill="#22282e"/></g></svg>`;
+  return [key, `data:image/svg+xml,${encodeURIComponent(svg)}`];
+}));
 export const pngUrl = id => PACKS[MODEL_BY[id].pack] + 'previews/' + id + (MODEL_BY[id].pack === 'generated' ? `.svg?v=${MODEL_ASSET_VERSION[id] || 2}` : '.png' + modelAssetVersion(id));
 
 export const BUILDINGS = ['Building A', 'Building B', 'Building D', 'Doc Center', 'Bloomberg', 'Building H', 'Building I', 'South', 'Storage room'];
@@ -167,6 +191,7 @@ export const STATUS_COLORS = {
   'In stock': ['#e7f4ec', '#155e3f', '#1c7c54'],
   'On loan': ['#e9effa', '#0a3d7c', '#0a3d7c'],
   Maintenance: ['#fdf0e0', '#8a5209', '#b8710f'],
+  Disposed: ['#fde8e7', '#a01a12', '#c9362e'],
   Retired: ['#f1f2f4', '#5b6672', '#8d99a6'],
   'Low stock': ['#fdeceb', '#a01a12', '#b3261e']
 };
@@ -222,23 +247,40 @@ export function initialsOf(name) {
 }
 
 export function isLowStock(it) {
-  return it.consumable && it.qty <= it.min && it.status !== 'Retired';
+  const quantity = Number(it?.qty);
+  const minimum = Number(it?.min);
+  return Boolean(it?.consumable) && !it.archived && it.status !== 'Retired'
+    && Number.isFinite(quantity) && Number.isFinite(minimum) && minimum > 0 && quantity <= minimum;
+}
+
+export function needsStockMinimum(it) {
+  return Boolean(it?.consumable) && !it.archived && it.status !== 'Retired'
+    && (!Number.isFinite(Number(it.min)) || Number(it.min) <= 0);
+}
+
+export function needsStockAttention(it) {
+  return isLowStock(it) || needsStockMinimum(it);
 }
 
 export function effStatus(it) {
+  if (it.disposalApproved || (it.status === 'Retired' && it.dispositionType)) return 'Disposed';
   if (it.status === 'On loan' || it.status === 'Maintenance' || it.status === 'Retired') return it.status;
   if (isLowStock(it)) return 'Low stock';
   return 'In stock';
 }
 
-export function thumbStyle(id, size, radius) {
+export function thumbStyle(modelOrItem, size, radius) {
+  const item = modelOrItem && typeof modelOrItem === 'object' ? modelOrItem : null;
+  const id = item?.model || modelOrItem;
+  const tonerColor = item ? tonerColorForItem(item) : '';
+  const previewUrl = tonerColor ? TONER_THUMBNAILS[tonerColor] : pngUrl(id);
   return {
     width: size + 'px', height: size + 'px', flex: 'none', overflow: 'hidden',
     borderRadius: radius + 'px', border: '1px solid rgba(158,178,198,.55)',
     backgroundColor: '#edf5fb',
-    backgroundImage: `url("${pngUrl(id)}"), radial-gradient(circle at 50% 34%,#ffffff 0%,#edf5fb 58%,#d9e7f2 100%)`,
-    backgroundPosition: 'center 36%,center', backgroundSize: '118% auto,100% 100%', backgroundRepeat: 'no-repeat',
-    backgroundBlendMode: 'multiply,normal', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.9),0 2px 5px rgba(26,61,91,.08)'
+    backgroundImage: `url("${previewUrl}"), radial-gradient(circle at 50% 34%,#ffffff 0%,#edf5fb 58%,#d9e7f2 100%)`,
+    backgroundPosition: 'center 36%,center', backgroundSize: tonerColor ? '96% auto,100% 100%' : '118% auto,100% 100%', backgroundRepeat: 'no-repeat',
+    backgroundBlendMode: tonerColor ? 'normal,normal' : 'multiply,normal', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.9),0 2px 5px rgba(26,61,91,.08)'
   };
 }
 

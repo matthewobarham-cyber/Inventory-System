@@ -70,6 +70,14 @@ export async function generateManagementReportPdf(report) {
     if (!report.assetRows.length) row(['No asset exceptions match the selected scope.'], [186]); y += 4;
   }
 
+  if (sections.depreciation) {
+    heading('Depreciation roll-forward by category');
+    row(['Category', 'Historical cost', 'Accum. depr.', 'Period depr.', 'Net book value'], [57, 36, 32, 29, 32], { header: true });
+    (report.depreciationRows || []).forEach((entry) => row([entry.name, money(entry.costBasis), money(entry.depreciation), money(entry.periodDepreciation), money(entry.bookValue)], [57, 36, 32, 29, 32], { max: [34, 18, 18, 18, 18] }));
+    if (!report.depreciationRows?.length) row(['No depreciation schedule is available for this scope.'], [186]);
+    y += 4;
+  }
+
   if (sections.maintenance) {
     heading('Maintenance cost ledger');
     row(['Date / ticket', 'Asset', 'Vendor', 'Status', 'Parts', 'Labor', 'Total'], [31, 42, 29, 24, 20, 20, 20], { header: true });
@@ -82,6 +90,30 @@ export async function generateManagementReportPdf(report) {
     row(['Order / item', 'Supplier', 'Status', 'Remaining', 'Commitment'], [57, 47, 27, 25, 30], { header: true });
     report.pendingOrders.forEach((order) => row([`${order.requisitionNumber || order.id} · ${order.name}`, order.supplier, order.status, order.remainingQty ?? order.qty, money(Number(order.unitCost || 0) * Number(order.remainingQty ?? order.qty ?? 0))], [57, 47, 27, 25, 30]));
     if (!report.pendingOrders.length) row(['No open purchase commitments in the selected scope.'], [186]); y += 5;
+  }
+
+  if (sections.disposals) {
+    heading('Completed disposal accounting');
+    row(['Date / type', 'Asset', 'Method', 'Book value', 'Proceeds', 'Loss / gain'], [31, 45, 39, 24, 23, 24], { header: true });
+    (report.disposalRows || []).forEach((entry) => row([`${entry.effectiveDate} ${entry.type}`, `${entry.itemName} ${entry.itemTag}`, entry.disposalMethod || entry.vendor || 'Not recorded', money(entry.carryingValue), money(entry.proceeds), entry.gain ? `${money(entry.gain)} gain` : `${money(entry.loss)} loss`], [31, 45, 39, 24, 23, 24], { max: [20, 28, 24, 14, 14, 15] }));
+    if (!report.disposalRows?.length) row(['No completed disposals fall within the selected period.'], [186]);
+    y += 4;
+  }
+
+  if (sections.journal) {
+    heading('General ledger journal worksheet');
+    row(['Date / source', 'Memo', 'Debit account', 'Credit account', 'Amount'], [32, 49, 39, 39, 27], { header: true });
+    (report.journalRows || []).forEach((entry) => row([`${entry.date} ${entry.source}`, entry.memo, entry.debitAccount, entry.creditAccount, money(entry.debit)], [32, 49, 39, 39, 27], { max: [20, 30, 24, 24, 16] }));
+    if (!report.journalRows?.length) row(['No journal activity was calculated for this period.'], [186]);
+    y += 4;
+  }
+
+  if (sections.controls) {
+    heading('Reconciliation and data-quality controls');
+    row(['Severity', 'Asset', 'Asset tag', 'Control exception'], [27, 55, 42, 62], { header: true });
+    (report.controlRows || []).forEach((entry) => row([entry.severity, entry.itemName, entry.tag || 'Not recorded', entry.issue], [27, 55, 42, 62], { max: [14, 34, 24, 38] }));
+    if (!report.controlRows?.length) row(['No reconciliation exceptions were detected.'], [186]);
+    y += 4;
   }
 
   heading('Reporting basis and limitations');
