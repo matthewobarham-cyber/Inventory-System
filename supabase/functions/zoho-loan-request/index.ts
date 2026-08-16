@@ -32,6 +32,19 @@ async function responseBody(response: Response) {
   try { return JSON.parse(text); } catch { return { message: text }; }
 }
 
+function zohoErrorMessage(payload: Record<string, unknown>, fallback: string) {
+  const details = Array.isArray(payload.errors)
+    ? payload.errors.map((entry) => {
+      const error = (entry || {}) as Record<string, unknown>;
+      const field = clean(error.fieldName).replace(/^\//, '') || 'request';
+      const reason = clean(error.errorMessage || error.message || error.errorType) || 'invalid';
+      return `${field}: ${reason}`;
+    }).filter(Boolean).join('; ')
+    : '';
+  const summary = clean(payload.message || payload.errorCode || payload.error) || fallback;
+  return details ? `${summary} (${details})` : summary;
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
@@ -144,7 +157,7 @@ Deno.serve(async (request) => {
       });
       const ticket = await responseBody(ticketResponse) as Record<string, unknown>;
       if (!ticketResponse.ok || !clean(ticket.id)) {
-        throw new Error(`Zoho ticket creation failed: ${clean(ticket.errorCode || ticket.message) || ticketResponse.statusText}`);
+        throw new Error(`Zoho ticket creation failed: ${zohoErrorMessage(ticket, ticketResponse.statusText)}`);
       }
 
       const urlTemplate = clean(Deno.env.get('ZOHO_TICKET_URL_TEMPLATE'));

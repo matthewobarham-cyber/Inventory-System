@@ -2024,7 +2024,7 @@ export default function App() {
     try {
       const result = await createZohoLoanRequestTicket(id);
       if (result?.request) setRequests((current) => current.map((request) => request.id === id ? result.request : request));
-      toast(result?.ticketCreated ? `Zoho ticket #${result.ticketNumber || result.ticketId} is linked` : 'Zoho delivery is still unavailable', { tone: result?.ticketCreated ? 'success' : 'warning' });
+      toast(result?.ticketCreated ? `Zoho ticket #${result.ticketNumber || result.ticketId} is linked` : (result?.warning || 'Zoho delivery is still unavailable'), { tone: result?.ticketCreated ? 'success' : 'warning' });
     } catch (error) {
       setRequests((current) => current.map((request) => request.id === id ? { ...request, helpdeskStatus: 'Failed', helpdeskError: error.message } : request));
       toast('Zoho delivery is still unavailable', { tone: 'warning' });
