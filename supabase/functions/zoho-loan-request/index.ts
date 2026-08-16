@@ -63,49 +63,122 @@ function wrappedLines(text: unknown, maxCharacters = 72) {
   return lines.length ? lines : ['Not recorded'];
 }
 
+async function fetchBrandPng(filename: string) {
+  const baseUrl = clean(Deno.env.get('MSBM_BRAND_BASE_URL')) || 'https://inventory-system-neon-two.vercel.app/brand';
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/${filename}`);
+    if (!response.ok) return null;
+    return new Uint8Array(await response.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 async function createLoanRequestPdf(details: Array<[string, unknown]>, ticketNumber: string, requestId: string) {
   const document = await PDFDocument.create();
-  document.setTitle(`MSBM equipment loan request ${requestId}`);
+  document.setTitle(`MSBM equipment borrowing agreement ${requestId}`);
   document.setAuthor('Mona School of Business & Management');
-  document.setSubject('Equipment borrowing request acknowledgement');
+  document.setSubject('Equipment borrowing request and electronic signature agreement');
   const page = document.addPage([595.28, 841.89]);
   const regular = await document.embedFont(StandardFonts.Helvetica);
   const bold = await document.embedFont(StandardFonts.HelveticaBold);
+  const mono = await document.embedFont(StandardFonts.Courier);
+  const [lockupBytes, crestBytes] = await Promise.all([fetchBrandPng('msbm-lockup.png'), fetchBrandPng('msbm-crest.png')]);
+  const lockup = lockupBytes ? await document.embedPng(lockupBytes) : null;
+  const crest = crestBytes ? await document.embedPng(crestBytes) : null;
+  const form = document.getForm();
+  const values = new Map(details.map(([label, value]) => [label, pdfText(value)]));
   const navy = rgb(0.045, 0.20, 0.31);
   const blue = rgb(0.03, 0.31, 0.55);
   const red = rgb(0.74, 0.08, 0.12);
   const ink = rgb(0.10, 0.15, 0.19);
   const muted = rgb(0.38, 0.45, 0.50);
-  const pale = rgb(0.95, 0.97, 0.98);
+  const pale = rgb(0.965, 0.976, 0.984);
+  const line = rgb(0.81, 0.85, 0.88);
 
-  page.drawRectangle({ x: 0, y: 720, width: 595.28, height: 121.89, color: navy });
-  page.drawRectangle({ x: 0, y: 720, width: 9, height: 121.89, color: red });
-  page.drawText('MSBM', { x: 38, y: 794, size: 25, font: bold, color: rgb(1, 1, 1) });
-  page.drawText('MONA SCHOOL OF BUSINESS & MANAGEMENT', { x: 38, y: 775, size: 9, font: bold, color: rgb(0.67, 0.88, 0.93) });
-  page.drawText('EQUIPMENT BORROWING REQUEST', { x: 38, y: 741, size: 17, font: bold, color: rgb(1, 1, 1) });
-  page.drawText(`ZOHO TICKET #${pdfText(ticketNumber)}`, { x: 557, y: 793, size: 9, font: bold, color: rgb(1, 1, 1), maxWidth: 190 });
-  page.drawText(pdfText(requestId), { x: 557, y: 777, size: 8, font: regular, color: rgb(0.72, 0.84, 0.89) });
-
-  page.drawRectangle({ x: 38, y: 665, width: 519, height: 34, color: pale, borderColor: rgb(0.82, 0.88, 0.91), borderWidth: 0.7 });
-  page.drawText('REQUEST RECEIVED', { x: 52, y: 685, size: 8, font: bold, color: blue });
-  page.drawText('This document confirms receipt. IT Services will review availability and borrowing eligibility.', { x: 52, y: 672, size: 8.4, font: regular, color: ink });
-
-  let y = 630;
-  for (const [label, value] of details) {
-    const lines = wrappedLines(value);
-    const height = Math.max(37, 24 + (lines.length - 1) * 11);
-    page.drawRectangle({ x: 38, y: y - height + 9, width: 519, height, color: rgb(1, 1, 1), borderColor: rgb(0.86, 0.89, 0.91), borderWidth: 0.6 });
-    page.drawText(pdfText(label).toUpperCase(), { x: 52, y: y - 2, size: 7.2, font: bold, color: muted });
-    lines.slice(0, 4).forEach((line, index) => page.drawText(line, { x: 192, y: y - 2 - index * 11, size: 9.3, font: index === 0 ? bold : regular, color: ink }));
-    y -= height + 4;
+  if (crest) page.drawImage(crest, { x: 211, y: 277, width: 110, height: 151, opacity: 0.045 });
+  else page.drawText('MSBM', { x: 117, y: 305, size: 112, font: bold, color: navy, opacity: 0.035 });
+  page.drawRectangle({ x: 0, y: 738, width: 595.28, height: 103.89, color: navy });
+  page.drawRectangle({ x: 0, y: 738, width: 8, height: 103.89, color: red });
+  page.drawRectangle({ x: 34, y: 761, width: 76, height: 56, color: rgb(1, 1, 1), borderColor: rgb(0.78, 0.84, 0.88), borderWidth: 0.8 });
+  if (lockup) page.drawImage(lockup, { x: 37, y: 770, width: 70, height: 36.4 });
+  else {
+    page.drawText('MSBM', { x: 45, y: 786, size: 20, font: bold, color: blue });
+    page.drawText('UWI MONA', { x: 49, y: 774, size: 7, font: bold, color: red });
   }
+  page.drawText('MONA SCHOOL OF BUSINESS & MANAGEMENT', { x: 126, y: 805, size: 8.2, font: bold, color: rgb(0.58, 0.82, 0.88) });
+  page.drawText('EQUIPMENT BORROWING AGREEMENT', { x: 126, y: 779, size: 16, font: bold, color: rgb(1, 1, 1) });
+  page.drawText('REQUEST ACKNOWLEDGEMENT & E-SIGNATURE FORM', { x: 126, y: 762, size: 8, font: regular, color: rgb(0.78, 0.87, 0.91) });
+  page.drawText(`ZOHO #${pdfText(ticketNumber)}`, { x: 468, y: 808, size: 8.5, font: bold, color: rgb(1, 1, 1), maxWidth: 89 });
+  page.drawText(pdfText(requestId), { x: 452, y: 793, size: 7.5, font: mono, color: rgb(0.72, 0.84, 0.89), maxWidth: 105 });
 
-  page.drawRectangle({ x: 38, y: 78, width: 519, height: 70, color: navy });
-  page.drawText('NEXT STEP', { x: 54, y: 124, size: 8, font: bold, color: rgb(0.50, 0.89, 0.84) });
-  page.drawText('Please retain this PDF and quote the request or Zoho ticket number', { x: 54, y: 107, size: 9.3, font: bold, color: rgb(1, 1, 1) });
-  page.drawText('when contacting MSBM IT Services. Approval is required before collection.', { x: 54, y: 92, size: 8.7, font: regular, color: rgb(0.80, 0.88, 0.91) });
-  page.drawText('MSBM IT Inventory System  |  The University of the West Indies, Mona', { x: 38, y: 43, size: 7.5, font: regular, color: muted });
-  page.drawText(`Generated ${new Date().toISOString()}`, { x: 557, y: 43, size: 7.5, font: regular, color: muted });
+  page.drawRectangle({ x: 38, y: 687, width: 519, height: 31, color: pale, borderColor: line, borderWidth: 0.7 });
+  page.drawText('REQUEST RECEIVED', { x: 51, y: 706, size: 7.4, font: bold, color: blue });
+  page.drawText('Pending IT review — this form does not authorize collection until approved.', { x: 51, y: 694, size: 8.2, font: regular, color: ink });
+
+  page.drawText(values.get('Requested equipment') || 'Inventory item', { x: 38, y: 654, size: 17, font: bold, color: ink });
+  page.drawText(`${values.get('Asset tag') || 'Asset tag not recorded'}  |  ${values.get('Model') || 'Model not recorded'}`, { x: 38, y: 638, size: 8.5, font: mono, color: blue });
+  page.drawLine({ start: { x: 38, y: 626 }, end: { x: 557, y: 626 }, thickness: 1.5, color: blue });
+
+  const fieldRows: Array<[string, string, string, string]> = [
+    ['Borrower', values.get('Requester') || 'Not recorded', 'Requester email', values.get('Requester email') || 'Not recorded'],
+    ['Submitted', values.get('Submitted') || 'Not recorded', 'Request status', values.get('Request status') || 'Pending review'],
+    ['Location of record', values.get('Location') || 'Not recorded', 'Inventory request', requestId],
+    ['Reason / need', values.get('Request purpose') || 'Borrowing request', 'Condition at request', values.get('Current status') || 'Not recorded']
+  ];
+  fieldRows.forEach((row, rowIndex) => {
+    row.forEach((value, columnIndex) => {
+      if (columnIndex % 2) return;
+      const x = columnIndex === 0 ? 38 : 303;
+      const y = 576 - rowIndex * 50;
+      page.drawRectangle({ x, y, width: 254, height: 39, color: pale, borderColor: line, borderWidth: 0.55 });
+      page.drawText(row[columnIndex].toUpperCase(), { x: x + 11, y: y + 25, size: 6.8, font: bold, color: muted });
+      const display = wrappedLines(row[columnIndex + 1], 40)[0];
+      page.drawText(display, { x: x + 11, y: y + 10, size: 9, font: regular, color: ink, maxWidth: 232 });
+    });
+  });
+
+  page.drawText('BORROWER RESPONSIBILITIES', { x: 38, y: 396, size: 9, font: bold, color: ink });
+  const responsibilities = [
+    'I accept responsibility for this equipment while it is issued to me.',
+    'I will protect it from loss, theft, damage, and unauthorized use.',
+    'I will not transfer it to another person and will return all accessories by the agreed date.',
+    'I understand that the equipment remains the property of The University of the West Indies.'
+  ];
+  responsibilities.forEach((text, index) => {
+    page.drawCircle({ x: 44, y: 376 - index * 18, size: 2.2, color: blue });
+    page.drawText(text, { x: 53, y: 372.5 - index * 18, size: 8.1, font: regular, color: ink });
+  });
+
+  page.drawLine({ start: { x: 38, y: 299 }, end: { x: 557, y: 299 }, thickness: 0.8, color: line });
+  page.drawText('ELECTRONIC SIGNATURES', { x: 38, y: 279, size: 9, font: bold, color: ink });
+  page.drawText('Type your full name in the applicable field. The completed document may be saved and returned electronically.', { x: 38, y: 265, size: 7.6, font: regular, color: muted });
+
+  const addSignatureField = (name: string, label: string, x: number) => {
+    page.drawText(label, { x, y: 239, size: 7.1, font: bold, color: muted });
+    const field = form.createTextField(name);
+    field.setFontSize(11);
+    field.addToPage(page, { x, y: 193, width: 236, height: 38, font: regular, textColor: ink, backgroundColor: rgb(1, 1, 1), borderColor: line, borderWidth: 0.8 });
+    page.drawText('Electronic signature / full legal name', { x: x + 8, y: 181, size: 6.6, font: regular, color: muted });
+  };
+  addSignatureField('borrower_esignature', 'BORROWER E-SIGNATURE', 38);
+  addSignatureField('it_approval_esignature', 'IT SERVICES APPROVAL E-SIGNATURE', 303);
+
+  page.drawText('DATE', { x: 38, y: 158, size: 7.1, font: bold, color: muted });
+  const borrowerDate = form.createTextField('borrower_signature_date');
+  borrowerDate.setFontSize(9);
+  borrowerDate.addToPage(page, { x: 38, y: 124, width: 120, height: 27, font: regular, textColor: ink, backgroundColor: pale, borderColor: line, borderWidth: 0.7 });
+  page.drawText('DATE', { x: 303, y: 158, size: 7.1, font: bold, color: muted });
+  const approvalDate = form.createTextField('it_approval_date');
+  approvalDate.setFontSize(9);
+  approvalDate.addToPage(page, { x: 303, y: 124, width: 120, height: 27, font: regular, textColor: ink, backgroundColor: pale, borderColor: line, borderWidth: 0.7 });
+
+  page.drawRectangle({ x: 38, y: 69, width: 519, height: 38, color: navy });
+  page.drawText('NEXT STEP', { x: 51, y: 92, size: 7, font: bold, color: rgb(0.50, 0.89, 0.84) });
+  page.drawText('Retain this PDF and quote the request or Zoho ticket number when contacting MSBM IT Services.', { x: 51, y: 78, size: 7.9, font: regular, color: rgb(1, 1, 1) });
+  page.drawText('MSBM IT Inventory System  |  The University of the West Indies, Mona', { x: 38, y: 38, size: 7, font: regular, color: muted });
+  page.drawText(`Generated ${new Date().toISOString().slice(0, 10)}`, { x: 454, y: 38, size: 7, font: regular, color: muted, maxWidth: 103 });
+  form.updateFieldAppearances(regular);
   return document.save();
 }
 
@@ -261,13 +334,14 @@ Deno.serve(async (request) => {
       if (!requesterEmail || !requesterEmail.includes('@')) throw new Error('The requester does not have a valid email address.');
 
       const filename = `MSBM-loan-request-${pdfText(recordId).replace(/[^A-Za-z0-9_-]/g, '-')}.pdf`;
-      const pdfDetails: Array<[string, unknown]> = [
-        ['Requester', requesterName], ['Requester email', requesterEmail], ['Requested equipment', itemName],
-        ['Asset tag', itemTag], ['Model', clean(item.modelNumber || item.model) || 'Not recorded'],
-        ['Location', [clean(item.location), clean(item.room)].filter(Boolean).join(' - ') || 'Not recorded'],
-        ['Request purpose', clean(loanRequest.need) || 'Borrowing request'], ['Request status', clean(loanRequest.state) || 'Pending review'],
-        ['Submitted', clean(loanRequest.submittedOn || loanRequest.when) || now]
-      ];
+        const pdfDetails: Array<[string, unknown]> = [
+          ['Requester', requesterName], ['Requester email', requesterEmail], ['Requested equipment', itemName],
+          ['Asset tag', itemTag], ['Model', clean(item.modelNumber || item.model) || 'Not recorded'],
+          ['Location', [clean(item.location), clean(item.room)].filter(Boolean).join(' - ') || 'Not recorded'],
+          ['Request purpose', clean(loanRequest.need) || 'Borrowing request'], ['Request status', clean(loanRequest.state) || 'Pending review'],
+          ['Current status', clean(item.status || loanRequest.statusSnapshot) || 'Not recorded'],
+          ['Submitted', clean(loanRequest.submittedOn || loanRequest.when) || now]
+        ];
       const pdfBytes = await createLoanRequestPdf(pdfDetails, ticketNumber, recordId);
       const uploadForm = new FormData();
       uploadForm.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), filename);
