@@ -104,14 +104,6 @@ const normalizeNavOverrides = (stored = {}) => Object.fromEntries(Object.entries
   const hadLegacyAdministration = source.includes('imports') || source.includes('users');
   const migrated = hadLegacyAdministration && !source.includes('settings') ? [...source, 'settings'] : source;
   const allowed = migrated.filter((screen) => LABELS[screen] && !['imports', 'users'].includes(screen));
-  if (defaults.includes('consumables') && !allowed.includes('consumables')) {
-    const inventoryIndex = allowed.indexOf('inventory');
-    allowed.splice(inventoryIndex < 0 ? allowed.length : inventoryIndex + 1, 0, 'consumables');
-  }
-  if (defaults.includes('disposal') && !allowed.includes('disposal')) {
-    const lifecycleIndex = allowed.indexOf('lifecycle');
-    allowed.splice(lifecycleIndex < 0 ? allowed.length : lifecycleIndex + 1, 0, 'disposal');
-  }
   if (role === 'Admin' && !allowed.includes('settings')) allowed.push('settings');
   return [role, Array.from(new Set(allowed))];
 }));
@@ -858,6 +850,20 @@ export default function App() {
   const sel = useMemo(() => displayItems.find((i) => i.id === selectedId) || null, [displayItems, selectedId]);
   const selectedPendingOrder = useMemo(() => pendingOrders.find((order) => order.itemId === selectedId) || null, [pendingOrders, selectedId]);
   const selectedPendingPlacement = useMemo(() => pendingPlacements.find((placement) => placement.itemId === selectedId) || null, [pendingPlacements, selectedId]);
+
+  // Page Access is authoritative even while another device is already on a
+  // page. Realtime permission changes remove the page from the sidebar and
+  // immediately move that user to their first remaining permitted screen.
+  useEffect(() => {
+    if (!session || !availableScreens.length) return;
+    const permissionScreen = screen === 'item'
+      ? (sel?.consumable ? 'consumables' : 'inventory')
+      : screen;
+    if (availableScreens.includes(permissionScreen)) return;
+    setSelectedId(null);
+    setScreen(availableScreens[0]);
+  }, [session, screen, sel?.consumable, availableScreens]);
+
   const globallyScannedItem = useMemo(() => {
     if (!detectedScan) return null;
     const value = detectedScan.value.toUpperCase();
