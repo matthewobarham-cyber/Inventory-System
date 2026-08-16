@@ -1993,7 +1993,7 @@ export default function App() {
     const loanRequest = {
       id: 'rq' + Date.now(), itemId: requestedItem.id, itemName: requestedItem.name, itemTag: requestedItem.tag, model: requestedItem.model, by: session.name, byEmail: session.email,
       statusSnapshot: requestedItem.status, when: 'Requested just now', submittedOn: iso(today()), need: 'Awaiting IT approval', state: 'Pending', workflowUnread: screen !== 'requests',
-      helpdeskStatus: cloudSession ? 'Sending' : 'Local only'
+      helpdeskStatus: cloudSession ? 'Sending' : 'Local only', helpdeskQueuedAt: cloudSession ? new Date().toISOString() : ''
     };
     const nextRequests = [loanRequest, ...requests];
     setRequests(nextRequests);

@@ -52,6 +52,7 @@ Deno.serve(async (request) => {
     const { requestId } = await request.json();
     const recordId = clean(requestId);
     if (!recordId) return json({ error: 'A borrowing request reference is required.' }, 400);
+    console.info(JSON.stringify({ event: 'loan_request_received', requestId: recordId }));
 
     const [{ data: profile }, { data: row, error: rowError }] = await Promise.all([
       adminClient.from('profiles').select('email,name,role,active').eq('id', user.id).single(),
@@ -67,6 +68,7 @@ Deno.serve(async (request) => {
     }
     if (loanRequest.type === 'Requisition') return json({ error: 'Purchase requisitions do not use the loan helpdesk workflow.' }, 400);
     if (clean(loanRequest.helpdeskTicketId)) {
+      console.info(JSON.stringify({ event: 'zoho_duplicate_prevented', requestId: recordId, ticketNumber: clean(loanRequest.helpdeskTicketNumber) }));
       return json({ ticketCreated: true, duplicatePrevented: true, request: loanRequest });
     }
 
@@ -89,6 +91,7 @@ Deno.serve(async (request) => {
     const missing = requiredSecrets.filter((name) => !Deno.env.get(name));
     if (missing.length) {
       const message = `Zoho Desk is not configured (${missing.join(', ')}).`;
+      console.warn(JSON.stringify({ event: 'zoho_configuration_missing', requestId: recordId, missing }));
       const payload = await updateRequest({ helpdeskStatus: 'Failed', helpdeskError: message, helpdeskLastAttemptAt: now });
       return json({ ticketCreated: false, warning: message, request: payload });
     }
@@ -152,13 +155,16 @@ Deno.serve(async (request) => {
         helpdeskStatus: 'Created', helpdeskTicketId: ticketId, helpdeskTicketNumber: ticketNumber,
         helpdeskTicketUrl: ticketUrl, helpdeskCreatedAt: now, helpdeskError: ''
       });
+      console.info(JSON.stringify({ event: 'zoho_ticket_created', requestId: recordId, ticketNumber }));
       return json({ ticketCreated: true, ticketId, ticketNumber, ticketUrl, request: payload });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Zoho Desk could not create the ticket.';
+      console.error(JSON.stringify({ event: 'zoho_ticket_failed', requestId: recordId, message }));
       const payload = await updateRequest({ helpdeskStatus: 'Failed', helpdeskError: message, helpdeskLastAttemptAt: now });
       return json({ ticketCreated: false, warning: message, request: payload });
     }
   } catch (error) {
+    console.error(JSON.stringify({ event: 'zoho_function_failed', message: error instanceof Error ? error.message : String(error) }));
     return json({ error: error instanceof Error ? error.message : 'Unable to create the Zoho Desk ticket.' }, 400);
   }
 });

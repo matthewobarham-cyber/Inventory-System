@@ -36,6 +36,9 @@ export default function Requests({ requests, role, sessionName, focusRequestId, 
         {visible.map((request) => {
           const requisition = request.type === 'Requisition';
           const actionable = role === 'Admin' && request.state === 'Pending';
+          const sendingSince = Date.parse(request.helpdeskLastAttemptAt || request.helpdeskQueuedAt || '');
+          const staleSending = request.helpdeskStatus === 'Sending' && (!Number.isFinite(sendingSince) || Date.now() - sendingSince > 120000);
+          const helpdeskRetryable = request.helpdeskStatus !== 'Created' && (request.helpdeskStatus !== 'Sending' || staleSending);
           return (
             <article key={request.id} data-request-id={request.id} data-dashboard-focus={request.id === focusRequestId ? 'true' : undefined} data-workflow-unread={request.workflowUnread ? 'true' : undefined} onClick={() => onAcknowledge?.(request.id)} className={`request-card request-${request.state.toLowerCase()}`}>
               <span className="request-state-rail" />
@@ -55,7 +58,7 @@ export default function Requests({ requests, role, sessionName, focusRequestId, 
                 {requisition && request.state === 'Approved' && <small>Approved by {request.approvedBy || 'IT management'}<br />Order workflow generated</small>}
                 {request.state === 'Declined' && <small className="request-decline-summary"><b>Reason:</b> {request.declineReason || 'No reason was recorded for this historical decision.'}{request.declinedBy && <><br />Declined by {request.declinedBy}{request.declinedOn ? ` · ${request.declinedOn}` : ''}</>}</small>}
                 {actionable && <div><button type="button" className="request-approve" onClick={() => onApprove(request.id)}>{requisition ? 'Approve requisition' : 'Approve request'}</button><button type="button" className="request-decline" onClick={() => { setDeclineCandidate(request); setDeclineReason(''); }}>Decline</button></div>}
-                {role === 'Admin' && !requisition && request.helpdeskStatus !== 'Created' && request.helpdeskStatus !== 'Sending' && <button type="button" className="request-helpdesk-retry" onClick={(event) => { event.stopPropagation(); onRetryHelpdesk?.(request.id); }}>Retry Zoho</button>}
+                {role === 'Admin' && !requisition && helpdeskRetryable && <button type="button" className="request-helpdesk-retry" onClick={(event) => { event.stopPropagation(); onRetryHelpdesk?.(request.id); }}>Retry Zoho</button>}
               </div>
             </article>
           );
