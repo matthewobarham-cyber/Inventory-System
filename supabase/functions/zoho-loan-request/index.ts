@@ -277,7 +277,11 @@ Deno.serve(async (request) => {
         const upload = await responseBody(uploadResponse) as Record<string, unknown>;
         attachmentId = clean(upload.id);
         if (!uploadResponse.ok || !attachmentId) {
-          throw new Error(`Zoho PDF upload failed: ${zohoErrorMessage(upload, uploadResponse.statusText)}`);
+          const reason = zohoErrorMessage(upload, uploadResponse.statusText);
+          const scopeHelp = uploadResponse.status === 401 || uploadResponse.status === 403
+            ? ' The Zoho refresh token must include Desk.tickets.ALL and the authorizing agent must be allowed to update tickets.'
+            : '';
+          throw new Error(`Zoho PDF upload failed: ${reason}.${scopeHelp}`);
         }
         await updateRequest({ helpdeskPdfAttachmentId: attachmentId, helpdeskPdfFilename: filename });
         console.info(JSON.stringify({ event: 'zoho_pdf_uploaded', requestId: recordId, ticketNumber }));
