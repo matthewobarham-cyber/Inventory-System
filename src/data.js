@@ -98,6 +98,7 @@ const MODEL_ASSET_VERSION = {
   'technician-toolkit': 4, teleprompter: 3,
   'fiber-optic-patch-cable': 3, 'firewall-appliance': 3, 'flatbed-scanner': 3,
   keyboard: 3, 'graphics-workstation': 3, 'printer-toner': 3,
+  drone: 4, 'broadband-modem': 4, 'camera-tripod': 4, 'cctv-camera': 4, 'blue-ethernet-cable': 4,
   'printer-drum-unit': 4, 'printer-fuser-unit': 4, 'printer-imaging-unit': 4,
   'printer-paper-ream': 4, 'printer-staple-kit': 4, 'printer-transfer-belt': 4
 };

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ACCOUNTS, NAV, LABELS, BUILDINGS, MODELS, SUPPLIERS,
   iso, today, isLowStock, needsStockAttention, money, glbUrl,
   ROTATION_SPEED, DEFAULT_VIEW, LOAN_TERM_DAYS
 } from './data.js';
 import { loadPersisted, savePersisted, loadSessionPointer, saveSessionPointer, clearSessionPointer } from './store.js';
+import { migrateWorkspaceAttachments } from './attachment-store.js';
 import { sendHelpdeskMail } from './mailer.js';
 import { classifyEquipment } from './csv-import.js';
 import { Inv3D } from './three-engine.js';
@@ -12,7 +13,8 @@ import {
   supabaseConfigured, signInWithSupabase, loadSupabaseSessionAccount, listSupabaseAccounts,
   createSupabaseAccount, resetSupabaseAccountPassword, updateSupabaseProfile, updateOwnSupabaseAvatar,
   requestSupabasePasswordReset, updateSupabasePassword, subscribeToPasswordRecovery, signOutSupabase,
-  loadSupabaseCsvSnapshot, storeSupabaseCsvImport
+  loadSupabaseCsvSnapshot, storeSupabaseCsvImport, loadSupabaseWorkspaceSnapshot,
+  saveSupabaseWorkspaceSnapshot, subscribeToSupabaseWorkspace
 } from './supabase.js';
 
 import Titlebar from './components/Titlebar.jsx';
@@ -23,24 +25,6 @@ import { rememberSuccessfulLogin } from './recent-logins.js';
 import PasswordRecoveryModal from './components/PasswordRecoveryModal.jsx';
 import GlobalScanModal from './components/GlobalScanModal.jsx';
 import Toast from './components/Toast.jsx';
-import Dashboard from './components/Dashboard.jsx';
-import Inventory from './components/Inventory.jsx';
-import StaffBorrowing from './components/StaffBorrowing.jsx';
-import Consumables from './components/Consumables.jsx';
-import ItemDetail from './components/ItemDetail.jsx';
-import Loans from './components/Loans.jsx';
-import LoanHistory from './components/LoanHistory.jsx';
-import Requests from './components/Requests.jsx';
-import Alerts from './components/Alerts.jsx';
-import PendingOrders from './components/PendingOrders.jsx';
-import PlacementQueue from './components/PlacementQueue.jsx';
-import Scan from './components/Scan.jsx';
-import Reports from './components/Reports.jsx';
-import Settings from './components/Settings.jsx';
-import Stocktakes from './components/Stocktakes.jsx';
-import Maintenance from './components/Maintenance.jsx';
-import Lifecycle from './components/Lifecycle.jsx';
-import Disposal from './components/Disposal.jsx';
 import BlankBarcodeModal from './components/BlankBarcodeModal.jsx';
 import AssetFormModal from './components/AssetFormModal.jsx';
 import CheckoutModal from './components/CheckoutModal.jsx';
@@ -51,7 +35,53 @@ import OrderDetailsModal from './components/OrderDetailsModal.jsx';
 import OrderApprovalModal from './components/OrderApprovalModal.jsx';
 import ReceiveOrderModal from './components/ReceiveOrderModal.jsx';
 import MyProfileModal from './components/MyProfileModal.jsx';
-import { generateOrderApprovalPdf } from './order-approval-pdf.js';
+
+const workspaceModuleLoaders = {
+  Dashboard: () => import('./components/Dashboard.jsx'),
+  Inventory: () => import('./components/Inventory.jsx'),
+  StaffBorrowing: () => import('./components/StaffBorrowing.jsx'),
+  Consumables: () => import('./components/Consumables.jsx'),
+  ItemDetail: () => import('./components/ItemDetail.jsx'),
+  Loans: () => import('./components/Loans.jsx'),
+  LoanHistory: () => import('./components/LoanHistory.jsx'),
+  Requests: () => import('./components/Requests.jsx'),
+  Alerts: () => import('./components/Alerts.jsx'),
+  PendingOrders: () => import('./components/PendingOrders.jsx'),
+  PlacementQueue: () => import('./components/PlacementQueue.jsx'),
+  Scan: () => import('./components/Scan.jsx'),
+  Reports: () => import('./components/Reports.jsx'),
+  Settings: () => import('./components/Settings.jsx'),
+  Stocktakes: () => import('./components/Stocktakes.jsx'),
+  Maintenance: () => import('./components/Maintenance.jsx'),
+  Lifecycle: () => import('./components/Lifecycle.jsx'),
+  Disposal: () => import('./components/Disposal.jsx'),
+  OrderApprovalPdf: () => import('./order-approval-pdf.js')
+};
+
+const Dashboard = lazy(workspaceModuleLoaders.Dashboard);
+const Inventory = lazy(workspaceModuleLoaders.Inventory);
+const StaffBorrowing = lazy(workspaceModuleLoaders.StaffBorrowing);
+const Consumables = lazy(workspaceModuleLoaders.Consumables);
+const ItemDetail = lazy(workspaceModuleLoaders.ItemDetail);
+const Loans = lazy(workspaceModuleLoaders.Loans);
+const LoanHistory = lazy(workspaceModuleLoaders.LoanHistory);
+const Requests = lazy(workspaceModuleLoaders.Requests);
+const Alerts = lazy(workspaceModuleLoaders.Alerts);
+const PendingOrders = lazy(workspaceModuleLoaders.PendingOrders);
+const PlacementQueue = lazy(workspaceModuleLoaders.PlacementQueue);
+const Scan = lazy(workspaceModuleLoaders.Scan);
+const Reports = lazy(workspaceModuleLoaders.Reports);
+const Settings = lazy(workspaceModuleLoaders.Settings);
+const Stocktakes = lazy(workspaceModuleLoaders.Stocktakes);
+const Maintenance = lazy(workspaceModuleLoaders.Maintenance);
+const Lifecycle = lazy(workspaceModuleLoaders.Lifecycle);
+const Disposal = lazy(workspaceModuleLoaders.Disposal);
+
+let workspaceCodeWarmup;
+function preloadWorkspaceCode() {
+  if (!workspaceCodeWarmup) workspaceCodeWarmup = Promise.all(Object.values(workspaceModuleLoaders).map((load) => load()));
+  return workspaceCodeWarmup;
+}
 
 window.__inv3dSpeed = ROTATION_SPEED;
 const ACTIVE_REPAIR_STATES = ['Open', 'In progress', 'Awaiting vendor'];
@@ -125,6 +155,22 @@ function freshWorld() {
   return { items: [], history: [], requests: [], orders: [], placements: [], stocktakes: [], repairTickets: [], maintenanceSchedules: [], lifecycleActions: [], procurementRecords: [], importRuns: [], csvCloudCursor: '', auditLog: [], userState: {}, profileState: {}, customAccounts: [], reservedBarcodes: [], approvedVendors: [], approvalContacts: [], maintenanceContacts: [], loanContacts: [], consumableUsage: [], borrowCategoryAccess: {} };
 }
 
+const SHARED_WORKSPACE_ARRAY_FIELDS = [
+  'items', 'history', 'requests', 'orders', 'placements', 'stocktakes',
+  'repairTickets', 'maintenanceSchedules', 'lifecycleActions',
+  'procurementRecords', 'importRuns', 'auditLog', 'reservedBarcodes',
+  'approvedVendors', 'approvalContacts', 'maintenanceContacts', 'loanContacts',
+  'consumableUsage'
+];
+
+function sharedWorkspaceSnapshot(source = {}) {
+  return {
+    ...Object.fromEntries(SHARED_WORKSPACE_ARRAY_FIELDS.map((field) => [field, asArray(source[field])])),
+    navOverrides: source.navOverrides && typeof source.navOverrides === 'object' ? source.navOverrides : NAV,
+    borrowCategoryAccess: source.borrowCategoryAccess && typeof source.borrowCategoryAccess === 'object' ? source.borrowCategoryAccess : {}
+  };
+}
+
 const isBorrowingApproved = (item, categoryAccess = {}) => {
   if (!item || item.archived || item.consumable || item.disposalApproved || item.status === 'Retired') return false;
   if (item.borrowEligibility === 'allowed') return true;
@@ -140,7 +186,7 @@ const mergeCachedCsvRecords = (local = [], cloud = []) => {
 };
 
 const MODEL_WARMUP_LIMIT = 64;
-const MODEL_WARMUP_TIMEOUT_MS = 1800;
+const MODEL_WARMUP_TIMEOUT_MS = 10000;
 const TONER_MODEL_URLS = ['cyan', 'magenta', 'yellow', 'black'].map((color) => `generated/models/toner-${color}.glb`);
 
 function workspaceModelUrls(items = []) {
@@ -166,6 +212,10 @@ function waitForWarmup(promise) {
     promise,
     new Promise((resolve) => setTimeout(resolve, MODEL_WARMUP_TIMEOUT_MS))
   ]);
+}
+
+function prepareWorkspaceResources(modelPromise) {
+  return Promise.all([preloadWorkspaceCode(), waitForWarmup(modelPromise)]);
 }
 
 function afterNextPaint() {
@@ -195,6 +245,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [loginPhase, setLoginPhase] = useState('');
   const [workspaceMounted, setWorkspaceMounted] = useState(false);
+  const [sharedWorkspaceConnected, setSharedWorkspaceConnected] = useState(false);
 
   const [items, setItems] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -290,6 +341,8 @@ export default function App() {
   const lastGlobalScan = useRef({ value: '', at: 0 });
   const csvSyncPromise = useRef(null);
   const sidebarMotionTimer = useRef(null);
+  const currentSharedWorkspaceRef = useRef(null);
+  const cloudSession = supabaseConfigured && session?.source === 'supabase';
 
   const handleSidebarCollapse = useCallback((collapsed) => {
     if (sidebarMotionTimer.current) clearTimeout(sidebarMotionTimer.current);
@@ -319,6 +372,46 @@ export default function App() {
     setToastTone(action?.tone || 'default');
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => { setToastMsg(''); setToastAction(null); setToastTone('default'); }, action?.label ? 6500 : 2600);
+  }, []);
+
+  const currentSharedWorkspace = useMemo(() => sharedWorkspaceSnapshot({
+    items, history, requests, orders, placements, stocktakes, repairTickets,
+    maintenanceSchedules, lifecycleActions, procurementRecords, importRuns,
+    auditLog, reservedBarcodes, approvedVendors, approvalContacts,
+    maintenanceContacts, loanContacts, consumableUsage, navOverrides,
+    borrowCategoryAccess
+  }), [
+    items, history, requests, orders, placements, stocktakes, repairTickets,
+    maintenanceSchedules, lifecycleActions, procurementRecords, importRuns,
+    auditLog, reservedBarcodes, approvedVendors, approvalContacts,
+    maintenanceContacts, loanContacts, consumableUsage, navOverrides,
+    borrowCategoryAccess
+  ]);
+  currentSharedWorkspaceRef.current = currentSharedWorkspace;
+
+  const applySharedWorkspace = useCallback((world) => {
+    if (!world) return;
+    setItems(asArray(world.items));
+    setHistory(asArray(world.history));
+    setRequests(asArray(world.requests));
+    setOrders(asArray(world.orders));
+    setPlacements(asArray(world.placements));
+    setStocktakes(asArray(world.stocktakes));
+    setRepairTickets(asArray(world.repairTickets));
+    setMaintenanceSchedules(asArray(world.maintenanceSchedules));
+    setLifecycleActions(asArray(world.lifecycleActions));
+    setProcurementRecords(asArray(world.procurementRecords));
+    setImportRuns(asArray(world.importRuns));
+    setAuditLog(asArray(world.auditLog));
+    setReservedBarcodes(asArray(world.reservedBarcodes));
+    setApprovedVendors(asArray(world.approvedVendors));
+    setApprovalContacts(asArray(world.approvalContacts));
+    setMaintenanceContacts(asArray(world.maintenanceContacts));
+    setLoanContacts(asArray(world.loanContacts));
+    setConsumableUsage(asArray(world.consumableUsage));
+    setNavOverrides(normalizeNavOverrides(world.navOverrides));
+    setBorrowCategoryAccess(world.borrowCategoryAccess && typeof world.borrowCategoryAccess === 'object' ? world.borrowCategoryAccess : {});
+    if (world.items?.length) modelWarmup.current = Inv3D.preload(workspaceModelUrls(world.items));
   }, []);
 
   const syncSharedCsvCache = async () => {
@@ -390,10 +483,11 @@ export default function App() {
       const promotedRequisitions = migratedRequests.filter((request) => request.type === 'Requisition' && request.state === 'Pending' && request.orderDraft && adminNames.has(request.by) && !linkedRequisitions.has(request.id) && !activeOrderItems.has(request.itemId));
       const promotedIds = new Set(promotedRequisitions.map((request) => request.id));
       setRequests(migratedRequests.map((request) => promotedIds.has(request.id) ? { ...request, state: 'Approved', approvedBy: request.by, approvedOn: request.submittedOn || iso(today()), migratedToOrder: true } : request));
-      setOrders([
+      const hydratedOrders = [
         ...promotedRequisitions.map((request) => ({ id: `ord-${request.id}`, ...request.orderDraft, requisitionId: request.id, requisitionNumber: request.orderDraft.requisitionNumber || `REQ-${String(request.id).replace(/^req/, '')}`, orderedOn: request.submittedOn || iso(today()), orderedBy: request.by, approvedBy: request.by, approvedOn: request.submittedOn || iso(today()), status: 'Pending' })),
         ...migratedOrders
-      ]);
+      ];
+      setOrders(hydratedOrders);
       setPlacements((world.placements || []).map(migrateEntry));
       setStocktakes(asArray(world.stocktakes).map((entry) => {
         const expectedIds = asArray(entry.expectedIds);
@@ -434,10 +528,19 @@ export default function App() {
       setBorrowCategoryAccess(world.borrowCategoryAccess && typeof world.borrowCategoryAccess === 'object' ? world.borrowCategoryAccess : {});
       const normalizedNav = normalizeNavOverrides(world.navOverrides);
       setNavOverrides(normalizedNav);
+      const bootSharedSnapshot = sharedWorkspaceSnapshot({
+        ...world,
+        items: migratedItems,
+        history: (world.history || []).map(migrateEntry),
+        requests: migratedRequests.map((request) => promotedIds.has(request.id) ? { ...request, state: 'Approved', approvedBy: request.by, approvedOn: request.submittedOn || iso(today()), migratedToOrder: true } : request),
+        orders: hydratedOrders,
+        navOverrides: normalizedNav
+      });
 
       if (supabaseConfigured) {
         const acct = await loadSupabaseSessionAccount();
         if (acct) {
+          let accountNav = normalizedNav;
           try {
             const cloudCsv = await loadSupabaseCsvSnapshot(world.csvCloudCursor || '');
             if (!cloudCsv.unchanged) {
@@ -449,15 +552,28 @@ export default function App() {
               modelWarmup.current = Inv3D.preload(workspaceModelUrls(mergedItems));
             }
           } catch (error) { console.error('Failed to refresh the shared CSV cache', error); }
+          try {
+            const shared = await loadSupabaseWorkspaceSnapshot();
+            if (shared.empty) {
+              if (acct.role !== 'Admin') throw new Error('The shared inventory must be initialized by an administrator.');
+              const migratedBootstrap = await migrateWorkspaceAttachments(bootSharedSnapshot);
+              await saveSupabaseWorkspaceSnapshot(migratedBootstrap);
+              applySharedWorkspace(migratedBootstrap);
+            } else {
+              applySharedWorkspace(shared.world);
+              accountNav = normalizeNavOverrides(shared.world.navOverrides);
+            }
+            setSharedWorkspaceConnected(true);
+          } catch (error) { console.error('Failed to hydrate the shared inventory workspace', error); }
           let cloudAccounts = [acct];
           try { cloudAccounts = await listSupabaseAccounts(); } catch (error) { console.error('Failed to load Supabase profiles', error); }
           setRemoteAccounts(cloudAccounts);
           setUserState((current) => ({ ...current, ...Object.fromEntries(cloudAccounts.map((entry) => [entry.email, entry.active !== false])) }));
-          await waitForWarmup(modelWarmup.current);
+          await prepareWorkspaceResources(modelWarmup.current);
           if (cancelled) return;
           setWorkspaceMounted(true);
           setSession(acct);
-          setScreen(normalizedNav[acct.role]?.[0] || NAV[acct.role][0]);
+          setScreen(accountNav[acct.role]?.[0] || NAV[acct.role][0]);
         } else {
           const pointer = loadSessionPointer();
           const demo = pointer?.source === 'demo' ? ACCOUNTS.find((entry) => entry.email === pointer.email) : null;
@@ -465,13 +581,13 @@ export default function App() {
             ? asArray(world.customAccounts).find((entry) => entry.email === pointer.email)
             : null;
           if (demo && (world.userState || {})[demo.email] !== false) {
-            await waitForWarmup(modelWarmup.current);
+            await prepareWorkspaceResources(modelWarmup.current);
             if (cancelled) return;
             setWorkspaceMounted(true);
             setSession({ ...demo, source: 'demo' });
             setScreen(normalizedNav[demo.role]?.[0] || NAV[demo.role][0]);
           } else if (local && (world.userState || {})[local.email] !== false) {
-            await waitForWarmup(modelWarmup.current);
+            await prepareWorkspaceResources(modelWarmup.current);
             if (cancelled) return;
             const { passwordHash: _passwordHash, ...safeLocal } = local;
             setWorkspaceMounted(true);
@@ -485,7 +601,7 @@ export default function App() {
           const acct = [...ACCOUNTS, ...asArray(world.customAccounts)].map((account) => ({ ...account, ...((world.profileState || {})[account.email] || {}) })).find((a) => a.email === pointer.email);
           const active = acct && (world.userState || {})[acct.email] !== false;
           if (acct && active) {
-            await waitForWarmup(modelWarmup.current);
+            await prepareWorkspaceResources(modelWarmup.current);
             if (cancelled) return;
             setWorkspaceMounted(true);
             setSession(acct);
@@ -535,19 +651,44 @@ export default function App() {
     let cancelled = false;
     let retryTimer = null;
     let saveTimer = null;
+    let idleSave = null;
     let backoff = 1000;
     const attempt = async () => {
       const saved = await savePersisted(snapshot);
       if (cancelled) return;
-      if (saved) { setSaveError(''); return; }
-      setSaveError('Changes could not be saved to disk. The application will keep retrying; do not close it.');
-      retryTimer = setTimeout(attempt, backoff);
-      backoff = Math.min(backoff * 2, 30000);
+      if (!saved) {
+        setSaveError('Changes could not be saved to disk. The application will keep retrying; do not close it.');
+        retryTimer = setTimeout(attempt, backoff);
+        backoff = Math.min(backoff * 2, 30000);
+        return;
+      }
+      if (cloudSession && sharedWorkspaceConnected) {
+        try { await saveSupabaseWorkspaceSnapshot(currentSharedWorkspace); }
+        catch (error) {
+          if (cancelled) return;
+          console.error('Shared inventory save failed', error);
+          setSaveError('Saved locally, but Supabase synchronization is retrying. Keep this window open until the connection recovers.');
+          retryTimer = setTimeout(attempt, backoff);
+          backoff = Math.min(backoff * 2, 30000);
+          return;
+        }
+      }
+      if (cancelled) return;
+      setSaveError('');
     };
-    // Coalesce rapid UI mutations (typing, scans, bulk updates) into one disk write.
-    saveTimer = setTimeout(attempt, 250);
-    return () => { cancelled = true; if (saveTimer) clearTimeout(saveTimer); if (retryTimer) clearTimeout(retryTimer); };
-  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, borrowCategoryAccess, persistenceEpoch]);
+    // Coalesce rapid mutations, then serialize the full workspace while the UI
+    // is idle so a save cannot stall navigation or a running animation.
+    saveTimer = setTimeout(() => {
+      if (typeof requestIdleCallback === 'function') idleSave = requestIdleCallback(attempt, { timeout: 1000 });
+      else attempt();
+    }, 300);
+    return () => {
+      cancelled = true;
+      if (saveTimer) clearTimeout(saveTimer);
+      if (retryTimer) clearTimeout(retryTimer);
+      if (idleSave !== null && typeof cancelIdleCallback === 'function') cancelIdleCallback(idleSave);
+    };
+  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, borrowCategoryAccess, persistenceEpoch, cloudSession, sharedWorkspaceConnected, currentSharedWorkspace]);
 
   // Keep browser-style navigation local to the signed-in workspace.
   useEffect(() => {
@@ -617,6 +758,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!cloudSession || !sharedWorkspaceConnected) return undefined;
+    let cancelled = false;
+    let reloadTimer = null;
+    const unsubscribe = subscribeToSupabaseWorkspace(() => {
+      if (reloadTimer) clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(async () => {
+        try {
+          // Publish any local edit already waiting in the debounce window before
+          // applying another device's canonical record set.
+          await saveSupabaseWorkspaceSnapshot(currentSharedWorkspaceRef.current || {});
+          const shared = await loadSupabaseWorkspaceSnapshot();
+          if (!cancelled && !shared.empty) applySharedWorkspace(shared.world);
+        } catch (error) {
+          console.error('Realtime shared workspace refresh failed', error);
+        }
+      }, 500);
+    }, session?.id);
+    return () => {
+      cancelled = true;
+      if (reloadTimer) clearTimeout(reloadTimer);
+      unsubscribe();
+    };
+  }, [cloudSession, sharedWorkspaceConnected, session?.id, applySharedWorkspace]);
+
+  useEffect(() => {
     if (!session) return undefined;
     const checkReminders = async () => {
       const todayIso = iso(today());
@@ -641,7 +807,6 @@ export default function App() {
 
   // ---- derived ----
   const role = session ? session.role : null;
-  const cloudSession = supabaseConfigured && session?.source === 'supabase';
   const isAdmin = role === 'Admin';
   const canEdit = role === 'Admin' || role === 'Student assistant';
   const canLoanNow = canEdit;
@@ -934,6 +1099,7 @@ export default function App() {
     }
     await rememberSuccessfulLogin(account, pass);
     await playSuccessTransition?.();
+    setSharedWorkspaceConnected(false);
     setWorkspaceMounted(false);
     setLoginPhase('Opening your secure workspace');
     setSession(account);
@@ -941,16 +1107,41 @@ export default function App() {
     await afterNextPaint();
     if (account.source === 'supabase') {
       setLoginPhase('Synchronizing the shared CSV archive');
-      try { await syncSharedCsvCache(); }
+      let csvResult = null;
+      try { csvResult = await syncSharedCsvCache(); }
       catch (syncError) { console.error('Shared CSV sync failed; continuing with the local cache', syncError); }
+      setLoginPhase('Synchronizing shared inventory records');
+      try {
+        const shared = await loadSupabaseWorkspaceSnapshot();
+        if (shared.empty) {
+          if (account.role !== 'Admin') throw new Error('The shared inventory has not been initialized. Sign in once with an administrator account.');
+          const bootstrap = {
+            ...currentSharedWorkspace,
+            items: csvResult?.assets?.length ? mergeCachedCsvRecords(currentSharedWorkspace.items, csvResult.assets) : currentSharedWorkspace.items,
+            procurementRecords: csvResult?.procurement?.length ? mergeCachedCsvRecords(currentSharedWorkspace.procurementRecords, csvResult.procurement) : currentSharedWorkspace.procurementRecords,
+            importRuns: csvResult?.runs?.length ? mergeCachedCsvRecords(currentSharedWorkspace.importRuns, csvResult.runs) : currentSharedWorkspace.importRuns
+          };
+          const migratedBootstrap = await migrateWorkspaceAttachments(bootstrap);
+          await saveSupabaseWorkspaceSnapshot(migratedBootstrap);
+          applySharedWorkspace(migratedBootstrap);
+        } else {
+          applySharedWorkspace(shared.world);
+          const sharedNav = normalizeNavOverrides(shared.world.navOverrides);
+          setScreen((current) => (sharedNav[account.role] || NAV[account.role]).includes(current) ? current : (sharedNav[account.role] || NAV[account.role])[0]);
+        }
+        setSharedWorkspaceConnected(true);
+      } catch (syncError) {
+        console.error('Shared workspace sync failed; continuing with the durable local cache', syncError);
+        toast(syncError?.message || 'Shared workspace sync is unavailable; changes will remain cached locally.');
+      }
     }
     setLoginPhase('Preparing inventory, consumables, and dashboard');
-    await afterNextPaint();
+    await Promise.all([preloadWorkspaceCode(), afterNextPaint()]);
     setLoginPhase('Loading 3D equipment and workspace data');
     await waitForWarmup(modelWarmup.current);
     setWorkspaceMounted(true);
     await afterNextPaint();
-    Inv3D.sync();
+    await waitForWarmup(Inv3D.sync(document.querySelector('.workspace-screen-stack') || document));
     await afterNextPaint();
     setLoginPhase('');
     return {};
@@ -967,12 +1158,12 @@ export default function App() {
     setScreen((navOverrides[account.role] || NAV[account.role])[0]);
     await afterNextPaint();
     setLoginPhase('Preparing inventory, consumables, and dashboard');
-    await afterNextPaint();
+    await Promise.all([preloadWorkspaceCode(), afterNextPaint()]);
     setLoginPhase('Loading 3D equipment and workspace data');
     await waitForWarmup(modelWarmup.current);
     setWorkspaceMounted(true);
     await afterNextPaint();
-    Inv3D.sync();
+    await waitForWarmup(Inv3D.sync(document.querySelector('.workspace-screen-stack') || document));
     await afterNextPaint();
     setLoginPhase('');
     return {};
@@ -982,6 +1173,7 @@ export default function App() {
     clearSessionPointer();
     setMyProfileOpen(false);
     setSession(null);
+    setSharedWorkspaceConnected(false);
     setLoginPhase('');
     setWorkspaceMounted(false);
     setScreen('dashboard');
@@ -1891,7 +2083,10 @@ export default function App() {
   const previewOrderApproval = async (id) => {
     const order = orders.find((entry) => entry.id === id);
     if (!order) return;
-    try { await generateOrderApprovalPdf(order); }
+    try {
+      const { generateOrderApprovalPdf } = await workspaceModuleLoaders.OrderApprovalPdf();
+      await generateOrderApprovalPdf(order);
+    }
     catch (error) { toast(error.message || 'Approval PDF could not be generated'); }
   };
 
@@ -2563,7 +2758,7 @@ export default function App() {
             newLabel={topBarAction?.label}
           />
           <div key={workspaceRefreshKey} className="workspace-screen-stack">
-            {workspaceMounted && <>
+            {workspaceMounted && <Suspense fallback={null}>
             {availableScreens.includes('dashboard') && <div className={`workspace-screen${screen === 'dashboard' ? ' active' : ''}`} data-app-content-scroll="true" aria-hidden={screen !== 'dashboard'}>
               <Dashboard
                 items={activeItems}
@@ -2663,7 +2858,7 @@ export default function App() {
               <Reports items={items} history={history} tickets={repairTickets} orders={orders} procurementRecords={procurementRecords} consumableUsage={consumableUsage} lifecycleActions={lifecycleActions} />
             </WorkspacePanel>}
             {availableScreens.includes('settings') && <WorkspacePanel name="settings" activeScreen={screen}><Settings isAdmin={isAdmin} accounts={accounts} userState={userState} navConfig={navOverrides} auditEntries={auditLog} importRuns={importRuns} procurementRecords={procurementRecords} vendors={approvedVendors} approvalContacts={approvalContacts} items={items} orders={orders} borrowCategoryAccess={borrowCategoryAccess} accountStorage={cloudSession ? 'Supabase secured' : 'Demo data stored locally'} onImport={importCsvData} onSaveVendor={saveApprovedVendor} onToggleVendor={toggleApprovedVendor} onSaveApprovalContact={saveApprovalContact} onToggleApprovalContact={toggleApprovalContact} onBorrowCategoryChange={setBorrowCategoryApproval} onAccessChange={updateRoleAccess} onToggle={toggleUser} onUpdateProfile={updateUserProfile} onCreateAccount={createUserAccount} onResetPassword={resetAccountPassword} /></WorkspacePanel>}
-            </>}
+            </Suspense>}
           </div>
         </div>
       </div>

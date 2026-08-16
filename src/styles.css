@@ -1742,14 +1742,14 @@ button[data-card="1"]:hover .equipment-preview__canvas { transform: scale(1.07);
 .printer-location em { margin-top: 3px; color: #287a96; font-size: 9.5px; font-style: normal; font-weight: 700; opacity: .72; transition: transform .18s ease,opacity .18s ease; }
 .printer-family-link:hover .printer-location em { transform: translateX(3px); opacity: 1; }
 .cmyk-grid { padding: 16px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); align-items: stretch; gap: 12px; }
-.ink-color-card { min-width: 0; height:100%; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d9e0e4; border-top: 4px solid var(--ink); border-radius: 13px; background: #fff; box-shadow: 0 7px 18px rgba(29,49,65,.06); }
+.ink-color-card { min-width: 0; height:auto; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d9e0e4; border-top: 4px solid var(--ink); border-radius: 13px; background: #fff; box-shadow: 0 7px 18px rgba(29,49,65,.06); }
 .ink-color-card[data-clickable="true"] { cursor: pointer; transition: transform .16s ease,border-color .16s ease,box-shadow .16s ease; }
 .ink-color-card[data-clickable="true"]:hover { transform: translateY(-2px); border-color: color-mix(in srgb,var(--ink) 48%,#ccd5da); box-shadow: 0 13px 27px rgba(29,49,65,.13); }
 .ink-color-card[data-clickable="true"]:focus-visible { outline: 3px solid color-mix(in srgb,var(--ink) 28%,transparent); outline-offset: 3px; }
 .ink-model-wrap { height: 154px; position: relative; padding:8px 10px; box-sizing:border-box; background: linear-gradient(180deg,var(--ink-soft),#f8fafb); }
 .ink-model-wrap .consumable-model-stage { height: 138px; border-radius: 0; background: transparent; }
 .ink-color-key { width: 25px; height: 25px; position: absolute; z-index: 4; top: 9px; left: 9px; display: grid; place-items: center; border: 1px solid color-mix(in srgb,var(--ink) 45%,#fff); border-radius: 8px; color: var(--ink); background: rgba(255,255,255,.92); font-size: 10px; font-weight: 850; }
-.ink-card-copy { min-height: 210px; padding: 12px 13px; display: flex; flex:1; flex-direction: column; align-items: flex-start; gap: 6px; }
+.ink-card-copy { min-height: 210px; padding: 12px 13px; display: flex; flex:1 1 auto; flex-direction: column; align-items: flex-start; gap: 6px; }
 .ink-card-copy > span:first-child { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 7px; }
 .ink-card-copy > span:first-child > strong { color: #263541; font-size: 14px; }
 .ink-card-copy > button,.supply-tile-copy > button { padding: 0; border: 0; color: #273a47; background: transparent; cursor: pointer; text-align: left; font-size: 11px; font-weight: 700; line-height: 1.35; }
@@ -1765,10 +1765,12 @@ button[data-card="1"]:hover .equipment-preview__canvas { transform: scale(1.07);
 .ink-card-copy p,.supply-tile-copy p { margin: 2px 0 0; color: #677681; font-size: 9px; line-height: 1.45; }
 .ink-card-copy > small { color: #89959e; font-size: 8px; line-height: 1.4; }
 .ink-color-card-records .ink-card-copy { min-height:210px; }
-.ink-card-copy > .ink-record-stack { position:relative; isolation:isolate; width:100%; min-height:82px; margin:7px 0 4px; padding:9px 55px 21px 10px; display:grid; grid-template-columns:minmax(0,1fr); align-items:center; overflow:visible; border:0; border-radius:10px; color:#29404f; background:transparent; box-shadow:none; cursor:pointer; text-align:left; transition:transform .2s ease; }
+.ink-record-stack { position:relative; isolation:isolate; z-index:2; width:100%; min-height:82px; margin:7px 0 4px; padding:9px 55px 21px 10px; display:grid; grid-template-columns:minmax(0,1fr); align-items:center; overflow:visible; border:0; border-radius:10px; color:#29404f; background:transparent; box-shadow:none; cursor:pointer; text-align:left; transition:transform .2s ease; }
 .ink-record-stack::before { content:''; position:absolute; z-index:2; inset:0 0 12px; border:1px solid color-mix(in srgb,var(--ink) 38%,#d1dce2); border-radius:10px; background:linear-gradient(135deg,color-mix(in srgb,var(--ink-soft) 62%,#fff),#fff); box-shadow:0 5px 14px rgba(24,55,75,.06); transition:border-color .18s ease,box-shadow .2s ease; }
-.ink-record-stack:hover { transform:translateY(-2px); }
+.ink-record-stack:hover { transform:none; }
 .ink-record-stack:hover::before { border-color:color-mix(in srgb,var(--ink) 58%,#bbcbd3); box-shadow:0 9px 19px rgba(24,55,75,.1); }
+.ink-record-stack:focus { outline:none; }
+.ink-record-stack:focus-visible::before { border-color:color-mix(in srgb,var(--ink) 70%,#aabdc7); box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 17%,transparent),0 9px 19px rgba(24,55,75,.1); }
 .ink-record-stack[data-expanded="true"] { margin-bottom:0; transform:none; }
 .ink-record-stack-layers { position:absolute; z-index:0; inset:0 5px 12px; display:block; pointer-events:none; }
 .ink-record-stack-layers i { position:absolute; inset:0; border:1px solid color-mix(in srgb,var(--ink) 28%,#cdd8de); border-radius:10px; background:color-mix(in srgb,var(--ink-soft) 54%,#fff); box-shadow:0 3px 7px rgba(30,54,68,.07); }
@@ -1790,8 +1792,8 @@ button[data-card="1"]:hover .equipment-preview__canvas { transform: scale(1.07);
 .ink-record-entry:hover { border-color:color-mix(in srgb,var(--ink) 52%,#bfcdd5); background:#fff; transform:translateX(2px); }.ink-record-entry[data-scanned="true"] { border-color:#208b64; box-shadow:0 0 0 3px rgba(32,139,100,.14); }
 .ink-record-entry > span:first-child { min-width:0; display:flex; flex-direction:column; align-items:flex-start; gap:2px; }.ink-record-entry small { color:#7d8b95; font-size:7px; }.ink-record-entry > span:first-child > small { color:var(--ink); font-weight:800; text-transform:uppercase; }.ink-record-entry strong { max-width:100%; overflow:hidden; font-size:8.5px; text-overflow:ellipsis; white-space:nowrap; }.ink-record-entry code { color:#174f72; font:8px 'IBM Plex Mono',monospace; font-weight:700; }
 .ink-record-entry-meta { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }.ink-record-entry-meta b { color:#267055; font-size:7px; text-transform:uppercase; }.ink-record-entry-meta em { color:#176b93; font-size:7px; font-style:normal; font-weight:750; }
-.ink-record-stack-shell { width:100%; margin:7px 0 4px; padding:0 0 15px 10px; position:relative; perspective:900px; transition:padding .3s cubic-bezier(.22,.75,.25,1); }
-.ink-record-stack-shell[data-expanded="true"] { padding-bottom:0; }
+.ink-record-stack-shell { width:100%; min-width:0; margin:7px 0 4px; padding:0 0 15px 10px; position:relative; perspective:900px; transition:padding .3s cubic-bezier(.22,.75,.25,1); }
+.ink-record-stack-shell[data-expanded="true"] { z-index:2; padding-bottom:0; }
 .ink-record-stack-shell .ink-record-stack { min-height:70px; margin:0; padding:9px 55px 9px 10px; transform-origin:left center; }
 .ink-record-stack-shell .ink-record-stack::before { inset:0; }
 .ink-record-stack-shell .ink-record-stack-count { bottom:1px; }
@@ -1801,8 +1803,8 @@ button[data-card="1"]:hover .equipment-preview__canvas { transform: scale(1.07);
 .ink-record-stack-shell .ink-record-stack-layers i:nth-child(2) { transform:translate3d(-6px,10px,-16px) rotateY(2.5deg) scaleX(.978); }
 .ink-record-stack-shell .ink-record-stack-layers i:nth-child(3) { transform:translate3d(-9px,15px,-24px) rotateY(3.5deg) scaleX(.964); }
 .ink-record-stack-shell[data-expanded="true"] .ink-record-stack-layers i { transform:translate3d(0,0,-1px) scale(1); opacity:0; }
-.ink-record-stack-shell .ink-record-expand { position:relative; z-index:1; margin:0 5px 0 2px; }
-.ink-record-stack-list { padding:0; gap:0; transform:translateY(-18px) scale(.985); transform-origin:top left; transition:transform .32s cubic-bezier(.22,.75,.25,1); }
+.ink-record-stack-shell .ink-record-expand { min-width:0; position:relative; z-index:1; margin:0 5px 0 2px; }
+.ink-record-stack-list { padding:0; gap:0; transform:translateY(-12px); transform-origin:top left; transition:transform .32s cubic-bezier(.22,.75,.25,1); }
 .ink-record-expand[data-expanded="true"] .ink-record-stack-list { transform:translateY(0) scale(1); }
 .ink-record-stack-list .ink-record-entry { min-height:62px; margin-top:-1px; padding:9px 10px 9px 14px; position:relative; border-radius:0; background:linear-gradient(100deg,color-mix(in srgb,var(--ink-soft) 56%,#fff),#fff 72%); transform:none; }
 .ink-record-stack-list .ink-record-entry::before { content:''; width:3px; position:absolute; left:0; top:7px; bottom:7px; border-radius:0 3px 3px 0; background:color-mix(in srgb,var(--ink) 72%,#fff); opacity:.65; }

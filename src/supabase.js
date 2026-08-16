@@ -156,6 +156,41 @@ export async function updateSupabasePassword(password) {
 
 const CSV_PAGE_SIZE = 1000;
 const CSV_UPLOAD_CHUNK_SIZE = 250;
+const WORKSPACE_ID = 'msbm';
+const WORKSPACE_PAGE_SIZE = 1000;
+const WORKSPACE_UPLOAD_CHUNK_SIZE = 150;
+const WORKSPACE_ARRAY_TYPES = {
+  items: 'items',
+  history: 'history',
+  requests: 'requests',
+  orders: 'orders',
+  placements: 'placements',
+  stocktakes: 'stocktakes',
+  repairTickets: 'repair_tickets',
+  maintenanceSchedules: 'maintenance_schedules',
+  lifecycleActions: 'lifecycle_actions',
+  procurementRecords: 'procurement_records',
+  importRuns: 'import_runs',
+  auditLog: 'audit_log',
+  reservedBarcodes: 'reserved_barcodes',
+  approvedVendors: 'approved_vendors',
+  approvalContacts: 'approval_contacts',
+  maintenanceContacts: 'maintenance_contacts',
+  loanContacts: 'loan_contacts',
+  consumableUsage: 'consumable_usage'
+};
+const WORKSPACE_SINGLETON_TYPES = {
+  navOverrides: 'nav_overrides',
+  borrowCategoryAccess: 'borrow_category_access'
+};
+const WORKSPACE_FIELD_BY_TYPE = Object.fromEntries([
+  ...Object.entries(WORKSPACE_ARRAY_TYPES),
+  ...Object.entries(WORKSPACE_SINGLETON_TYPES)
+].map(([field, type]) => [type, field]));
+let workspaceBaseline = new Map();
+let workspaceSortIndexes = new Map();
+let workspaceInitialized = false;
+let workspaceSaveChain = Promise.resolve();
 
 async function selectEveryCsvRow(table, columns, orderColumn) {
   const client = requireClient();
@@ -238,6 +273,194 @@ export async function storeSupabaseCsvImport({ assets = [], procurement = [], ru
   const { error: runError } = await client.from('csv_import_runs').update({ complete: true }).eq('id', run.id);
   if (runError) throw runError;
   return { cursor: run.id, stored: rows.length };
+}
+
+function workspaceRecordKey(entityType, recordId) {
+  return `${entityType}\u0000${recordId}`;
+}
+
+function workspaceRecordHash(payload, sortIndex) {
+  return JSON.stringify([sortIndex, payload]);
+}
+
+function workspaceRows(snapshot = {}, userId = '') {
+  const rows = [];
+  Object.entries(WORKSPACE_ARRAY_TYPES).forEach(([field, entityType]) => {
+    const records = Array.isArray(snapshot[field]) ? snapshot[field] : [];
+    const establishedSorts = [...workspaceSortIndexes.entries()]
+      .filter(([key]) => key.startsWith(`${entityType}\u0000`))
+      .map(([, value]) => value);
+    let nextNewSort = establishedSorts.length ? Math.min(...establishedSorts) - records.length : 0;
+    records.forEach((payload, sortIndex) => {
+      const recordId = String(payload?.id || '').trim();
+      if (!recordId) return;
+      const key = workspaceRecordKey(entityType, recordId);
+      const stableSortIndex = workspaceSortIndexes.has(key) ? workspaceSortIndexes.get(key) : (establishedSorts.length ? nextNewSort++ : sortIndex);
+      rows.push({
+        workspace_id: WORKSPACE_ID,
+        entity_type: entityType,
+        record_id: recordId,
+        payload,
+        sort_index: stableSortIndex,
+        updated_by: userId,
+        updated_at: new Date().toISOString()
+      });
+    });
+  });
+  Object.entries(WORKSPACE_SINGLETON_TYPES).forEach(([field, entityType]) => {
+    rows.push({
+      workspace_id: WORKSPACE_ID,
+      entity_type: entityType,
+      record_id: 'current',
+      payload: snapshot[field] && typeof snapshot[field] === 'object' ? snapshot[field] : {},
+      sort_index: 0,
+      updated_by: userId,
+      updated_at: new Date().toISOString()
+    });
+  });
+  return rows;
+}
+
+async function selectEveryWorkspaceRow() {
+  const client = requireClient();
+  const rows = [];
+  for (let from = 0; ; from += WORKSPACE_PAGE_SIZE) {
+    const { data, error } = await client
+      .from('workspace_records')
+      .select('entity_type, record_id, payload, sort_index, updated_at, updated_by')
+      .eq('workspace_id', WORKSPACE_ID)
+      .order('entity_type', { ascending: true })
+      .order('sort_index', { ascending: true })
+      .range(from, from + WORKSPACE_PAGE_SIZE - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if ((data || []).length < WORKSPACE_PAGE_SIZE) return rows;
+  }
+}
+
+/** Load the canonical shared workspace and establish the local diff baseline. */
+export async function loadSupabaseWorkspaceSnapshot() {
+  const client = requireClient();
+  const [rows, registryResult] = await Promise.all([
+    selectEveryWorkspaceRow(),
+    client.from('workspace_registry').select('initialized').eq('workspace_id', WORKSPACE_ID).maybeSingle()
+  ]);
+  if (registryResult.error) throw registryResult.error;
+  const world = {
+    ...Object.fromEntries(Object.keys(WORKSPACE_ARRAY_TYPES).map((field) => [field, []])),
+    ...Object.fromEntries(Object.keys(WORKSPACE_SINGLETON_TYPES).map((field) => [field, {}]))
+  };
+  const nextBaseline = new Map();
+  const nextSortIndexes = new Map();
+  rows.forEach((row) => {
+    const field = WORKSPACE_FIELD_BY_TYPE[row.entity_type];
+    if (!field) return;
+    const sortIndex = Number(row.sort_index || 0);
+    const key = workspaceRecordKey(row.entity_type, row.record_id);
+    nextBaseline.set(key, workspaceRecordHash(row.payload, sortIndex));
+    nextSortIndexes.set(key, sortIndex);
+    if (Object.prototype.hasOwnProperty.call(WORKSPACE_ARRAY_TYPES, field)) world[field].push({ ...row.payload });
+    else world[field] = row.payload && typeof row.payload === 'object' ? row.payload : {};
+  });
+  workspaceBaseline = nextBaseline;
+  workspaceSortIndexes = nextSortIndexes;
+  workspaceInitialized = registryResult.data?.initialized === true;
+  return { empty: !workspaceInitialized, rows: rows.length, world };
+}
+
+/**
+ * Persist only changed entity rows. Independent records are upserted separately,
+ * preventing an asset edit on one device from replacing an unrelated loan or
+ * stocktake created on another device.
+ */
+export function saveSupabaseWorkspaceSnapshot(snapshot = {}) {
+  const requestedRows = workspaceRows(snapshot);
+  workspaceSaveChain = workspaceSaveChain.catch(() => {}).then(async () => {
+    const client = requireClient();
+    const { data: { user }, error: userError } = await client.auth.getUser();
+    if (userError || !user) throw new Error('Sign in again before synchronizing inventory data.');
+
+    const rows = requestedRows.map((row) => ({ ...row, updated_by: user.id }));
+    const next = new Map(rows.map((row) => [
+      workspaceRecordKey(row.entity_type, row.record_id),
+      workspaceRecordHash(row.payload, row.sort_index)
+    ]));
+    const changed = rows.filter((row) => workspaceBaseline.get(workspaceRecordKey(row.entity_type, row.record_id)) !== workspaceRecordHash(row.payload, row.sort_index));
+
+    for (let index = 0; index < changed.length; index += WORKSPACE_UPLOAD_CHUNK_SIZE) {
+      const { error } = await client.from('workspace_records').upsert(changed.slice(index, index + WORKSPACE_UPLOAD_CHUNK_SIZE), {
+        onConflict: 'workspace_id,entity_type,record_id'
+      });
+      if (error) throw error;
+    }
+
+    const removedByType = new Map();
+    workspaceBaseline.forEach((_, key) => {
+      if (next.has(key)) return;
+      const [entityType, recordId] = key.split('\u0000');
+      if (!removedByType.has(entityType)) removedByType.set(entityType, []);
+      removedByType.get(entityType).push(recordId);
+    });
+    for (const [entityType, recordIds] of removedByType) {
+      for (let index = 0; index < recordIds.length; index += WORKSPACE_UPLOAD_CHUNK_SIZE) {
+        const { error } = await client.from('workspace_records')
+          .delete()
+          .eq('workspace_id', WORKSPACE_ID)
+          .eq('entity_type', entityType)
+          .in('record_id', recordIds.slice(index, index + WORKSPACE_UPLOAD_CHUNK_SIZE));
+        if (error) throw error;
+      }
+    }
+    if (!workspaceInitialized) {
+      const { error } = await client.from('workspace_registry').upsert({
+        workspace_id: WORKSPACE_ID,
+        initialized: true,
+        initialized_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        updated_by: user.id
+      }, { onConflict: 'workspace_id' });
+      if (error) throw error;
+      workspaceInitialized = true;
+    }
+    workspaceBaseline = next;
+    workspaceSortIndexes = new Map(rows.map((row) => [workspaceRecordKey(row.entity_type, row.record_id), row.sort_index]));
+    return { changed: changed.length, deleted: [...removedByType.values()].reduce((sum, ids) => sum + ids.length, 0) };
+  });
+  return workspaceSaveChain;
+}
+
+export function subscribeToSupabaseWorkspace(onRemoteChange, currentUserId = '') {
+  if (!supabase) return () => {};
+  const channel = supabase.channel(`workspace-records-${Math.random().toString(36).slice(2)}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workspace_records', filter: `workspace_id=eq.${WORKSPACE_ID}` }, (change) => {
+      const changedBy = change.new?.updated_by || change.old?.updated_by || '';
+      if (currentUserId && changedBy === currentUserId) return;
+      onRemoteChange?.(change);
+    })
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
+}
+
+export async function uploadWorkspaceAttachment(id, file) {
+  const client = requireClient();
+  const safeName = String(file.name || 'attachment').replace(/[^a-zA-Z0-9._-]+/g, '-');
+  const path = `disposal/${String(id).replace(/[^a-zA-Z0-9_-]+/g, '-')}/${safeName}`;
+  const { error } = await client.storage.from('workspace-attachments').upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+  if (error) throw error;
+  return { id, name: file.name, type: file.type, size: file.size, storage: 'supabase', path };
+}
+
+export async function downloadWorkspaceAttachment(path) {
+  const client = requireClient();
+  const { data, error } = await client.storage.from('workspace-attachments').download(path);
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteWorkspaceAttachment(path) {
+  const client = requireClient();
+  const { error } = await client.storage.from('workspace-attachments').remove([path]);
+  if (error) throw error;
 }
 
 export function subscribeToPasswordRecovery(onRecovery) {

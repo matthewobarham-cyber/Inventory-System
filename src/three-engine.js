@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const cache = new Map();
+const fittedCache = new Map();
 const loader = new GLTFLoader();
 const textureLoader = new THREE.TextureLoader();
 let msbmScreenTexturePromise;
@@ -119,7 +120,15 @@ function loadModel(url) {
   return cache.get(id);
 }
 
-function fitted(src, target) {
+function cloneFitted(template) {
+  const root = template.clone(true);
+  root.spinner = root.getObjectByName('__inventory_model_spinner__');
+  return root;
+}
+
+function fitted(src, target, cacheKey = '') {
+  const fittedKey = cacheKey ? `${cacheKey}::${target}` : '';
+  if (fittedKey && fittedCache.has(fittedKey)) return cloneFitted(fittedCache.get(fittedKey));
   const obj = src.clone(true);
   obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const box = new THREE.Box3().setFromObject(obj);
@@ -128,6 +137,7 @@ function fitted(src, target) {
   const max = Math.max(size.x, size.y, size.z) || 1;
   const s = target / max;
   const pivot = new THREE.Group();
+  pivot.name = '__inventory_model_spinner__';
   const inner = new THREE.Group();
   obj.position.set(-center.x, -center.y, -center.z);
   inner.add(obj);
@@ -153,7 +163,9 @@ function fitted(src, target) {
   const root = new THREE.Group();
   root.add(catcher, blob, pivot);
   root.spinner = pivot;
-  return root;
+  if (!fittedKey) return root;
+  fittedCache.set(fittedKey, root);
+  return cloneFitted(root);
 }
 
 function shadowTexture() {
@@ -206,6 +218,9 @@ const detailResizeObserver = typeof ResizeObserver === 'undefined' ? null : new 
 
 let lastCardFrame = 0;
 const CARD_FRAME_INTERVAL = 1000 / 60;
+const DETAIL_DEFAULT_YAW = 0.6;
+const DETAIL_DEFAULT_PITCH = -0.18;
+const DETAIL_RETURN_DURATION = 420;
 let detailRenderWidth = 900;
 let detailRenderHeight = 620;
 function frame(now) {
@@ -246,7 +261,18 @@ function frame(now) {
     const dt = e.lastFrame ? Math.min((now - e.lastFrame) / 1000, .1) : 0;
     e.lastFrame = now;
     const dmul = typeof window.__inv3dSpeed === 'number' ? window.__inv3dSpeed : 1;
-    if (e.spin && !reduced) e.yaw += dt * 0.5 * dmul;
+    if (e.returning) {
+      const progress = Math.min(1, (now - e.returning.startedAt) / DETAIL_RETURN_DURATION);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      e.yaw = THREE.MathUtils.lerp(e.returning.yaw, e.returning.targetYaw, eased);
+      e.pitch = THREE.MathUtils.lerp(e.returning.pitch, DETAIL_DEFAULT_PITCH, eased);
+      e.zoom = THREE.MathUtils.lerp(e.returning.zoom, 1, eased);
+      if (progress >= 1) {
+        const resumeSpin = e.returning.resumeSpin;
+        e.returning = null;
+        e.spin = resumeSpin;
+      }
+    } else if (e.spin && !reduced) e.yaw += dt * 0.5 * dmul;
     e.pivot.spinner.rotation.y = e.yaw;
     e.pivot.spinner.rotation.x = e.pitch;
     ds.camera.aspect = e.canvas.width / e.canvas.height;
@@ -279,25 +305,60 @@ const io = new IntersectionObserver(entries => {
   }
 }, { rootMargin: '160px' });
 
-function attachDetailControls(el, e) {
-  let dragging = false, px = 0, py = 0;
+function attachDetailControls(el) {
+  let dragging = false, px = 0, py = 0, pointerId = null, resumeSpin = true;
+  const activeEntry = () => details.get(el);
+  const setCursor = (cursor) => {
+    el.style.cursor = cursor;
+    const entry = activeEntry();
+    if (entry?.canvas) entry.canvas.style.cursor = cursor;
+  };
   el.addEventListener('pointerdown', ev => {
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    const e = activeEntry();
+    if (!e) return;
     ev.preventDefault();
-    dragging = true; px = ev.clientX; py = ev.clientY; e.spin = false;
-    el.style.cursor = 'grabbing';
+    dragging = true; pointerId = ev.pointerId; px = ev.clientX; py = ev.clientY;
+    resumeSpin = e.returning?.resumeSpin ?? e.spin;
+    e.returning = null;
+    e.spin = false;
+    setCursor('grabbing');
     el.setPointerCapture(ev.pointerId);
   });
   el.addEventListener('pointermove', ev => {
-    if (!dragging) return;
+    const e = activeEntry();
+    if (!dragging || !e) return;
     e.yaw += (ev.clientX - px) * 0.01;
     e.pitch = Math.max(-1.2, Math.min(1.2, e.pitch + (ev.clientY - py) * 0.008));
     px = ev.clientX; py = ev.clientY;
   });
-  const stop = () => { dragging = false; el.style.cursor = 'grab'; };
+  const stop = () => {
+    if (!dragging) return;
+    const e = activeEntry();
+    dragging = false;
+    if (pointerId !== null && el.hasPointerCapture?.(pointerId)) el.releasePointerCapture(pointerId);
+    pointerId = null;
+    setCursor('grab');
+    if (!e) return;
+    const targetYaw = DETAIL_DEFAULT_YAW + Math.round((e.yaw - DETAIL_DEFAULT_YAW) / (Math.PI * 2)) * Math.PI * 2;
+    if (reduced) {
+      e.yaw = targetYaw;
+      e.pitch = DETAIL_DEFAULT_PITCH;
+      e.zoom = 1;
+      e.spin = resumeSpin;
+      return;
+    }
+    e.returning = { yaw: e.yaw, pitch: e.pitch, zoom: e.zoom, targetYaw, startedAt: performance.now(), resumeSpin };
+  };
   el.addEventListener('pointerup', stop);
   el.addEventListener('pointercancel', stop);
-  el.addEventListener('wheel', ev => { ev.preventDefault(); e.zoom = Math.max(0.55, Math.min(2.4, e.zoom * (ev.deltaY > 0 ? 0.92 : 1.08))); }, { passive: false });
+  el.addEventListener('wheel', ev => {
+    const e = activeEntry();
+    if (!e) return;
+    ev.preventDefault();
+    e.returning = null;
+    e.zoom = Math.max(0.55, Math.min(2.4, e.zoom * (ev.deltaY > 0 ? 0.92 : 1.08)));
+  }, { passive: false });
 }
 
 export const Inv3D = {
@@ -307,13 +368,15 @@ export const Inv3D = {
     const worker = async () => {
       while (nextIndex < uniqueUrls.length) {
         const url = uniqueUrls[nextIndex++];
-        await loadModel(url);
+        const source = await loadModel(url);
+        if (source) fitted(source, 1.35, url);
       }
     };
     // Avoid decoding dozens of GLBs on the UI thread at the same instant.
     return Promise.allSettled(Array.from({ length: Math.min(6, uniqueUrls.length) }, worker));
   },
   sync(root = document) {
+    const pending = [];
     root.querySelectorAll('canvas[data-model]').forEach(canvas => {
       const id = canvas.getAttribute('data-model');
       if (!id) return;
@@ -330,7 +393,8 @@ export const Inv3D = {
       };
       cards.set(canvas, entry);
       io.observe(canvas);
-      loadModel(id).then(src => { if (src && cards.get(canvas) === entry) entry.pivot = fitted(src, 1.35); });
+      const task = loadModel(id).then(src => { if (src && cards.get(canvas) === entry) entry.pivot = fitted(src, 1.35, id); });
+      pending.push(task);
     });
 
     root.querySelectorAll('[data-detail-model]').forEach(el => {
@@ -350,15 +414,17 @@ export const Inv3D = {
         if (interactive) el.style.touchAction = 'none';
       }
       e = {
-        id, canvas, ctx: canvas.getContext('2d'), yaw: 0.6, pitch: -0.18,
-        zoom: 1, spin: spinning, fps, lastFrame: 0, shown: false, pivot: null, bound: e && e.bound
+        id, canvas, ctx: canvas.getContext('2d'), yaw: DETAIL_DEFAULT_YAW, pitch: DETAIL_DEFAULT_PITCH,
+        zoom: 1, spin: spinning, returning: null, fps, lastFrame: 0, shown: false, pivot: null, bound: e && e.bound
       };
       details.set(el, e);
       Inv3D.resizeDetail(el);
       detailResizeObserver?.observe(el);
-      if (interactive && !e.bound) { attachDetailControls(el, e); e.bound = true; }
-      loadModel(id).then(src => { if (src && details.get(el) === e) e.pivot = fitted(src, scale); });
+      if (interactive && !e.bound) { attachDetailControls(el); e.bound = true; }
+      const task = loadModel(id).then(src => { if (src && details.get(el) === e) e.pivot = fitted(src, scale, id); });
+      pending.push(task);
     });
+    return Promise.allSettled(pending);
   },
   resizeDetail(el) {
     const e = details.get(el); if (!e) return;
@@ -370,8 +436,8 @@ export const Inv3D = {
     const h = Math.round(cssHeight * scale);
     if (e.canvas.width !== w || e.canvas.height !== h) { e.canvas.width = w; e.canvas.height = h; }
   },
-  resetDetail() { for (const e of details.values()) { e.yaw = 0.6; e.pitch = -0.18; e.zoom = 1; e.spin = true; } },
-  toggleSpin() { let on = false; for (const e of details.values()) { e.spin = !e.spin; on = e.spin; } return on; }
+  resetDetail() { for (const e of details.values()) { e.yaw = DETAIL_DEFAULT_YAW; e.pitch = DETAIL_DEFAULT_PITCH; e.zoom = 1; e.returning = null; e.spin = true; } },
+  toggleSpin() { let on = false; for (const e of details.values()) { e.returning = null; e.spin = !e.spin; on = e.spin; } return on; }
 };
 
 if (typeof window !== 'undefined') {

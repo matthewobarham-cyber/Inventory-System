@@ -139,7 +139,7 @@ export default function Disposal({ items, actions, query, canManage, canApprove,
   };
   const discardRequest = () => {
     if (filesBusy) return;
-    requestForm.documents.forEach((file) => { if (file.storage === 'indexeddb') deleteAttachment(file.id).catch(() => {}); });
+    requestForm.documents.forEach((file) => { if (['indexeddb', 'supabase'].includes(file.storage)) deleteAttachment(file).catch(() => {}); });
     setRequestOpen(false);
   };
   const selectDocuments = async (event) => {
@@ -151,12 +151,11 @@ export default function Disposal({ items, actions, query, canManage, canApprove,
     setFilesBusy(true);
     setRequestError('');
     try {
-      await Promise.all(requestForm.documents.filter((file) => file.storage === 'indexeddb').map((file) => deleteAttachment(file.id).catch(() => {})));
+      await Promise.all(requestForm.documents.filter((file) => ['indexeddb', 'supabase'].includes(file.storage)).map((file) => deleteAttachment(file).catch(() => {})));
       const stamp = Date.now();
       const documents = await Promise.all(selected.map(async (file, index) => {
         const id = `DOC-${stamp}-${index}-${Math.random().toString(36).slice(2, 7)}`;
-        await saveAttachment(id, file);
-        return { id, name: file.name, size: file.size, type: file.type || 'application/octet-stream', storage: 'indexeddb' };
+        return saveAttachment(id, file);
       }));
       setRequestForm((form) => ({ ...form, documents }));
     } catch (fileError) {
@@ -166,7 +165,7 @@ export default function Disposal({ items, actions, query, canManage, canApprove,
   const viewDocument = async (file) => {
     setDocumentMessage('');
     try {
-      const stored = file.storage === 'indexeddb' ? await loadAttachment(file.id) : null;
+      const stored = ['indexeddb', 'supabase'].includes(file.storage) ? await loadAttachment(file) : null;
       if (!stored?.blob) { setDocumentMessage('This older record retained the document name only; its file content is unavailable.'); return; }
       if (!previewableFile(file)) { setDocumentMessage('This file type cannot be previewed here. Use Download to open it in its associated application.'); return; }
       const url = URL.createObjectURL(stored.blob);
@@ -176,7 +175,7 @@ export default function Disposal({ items, actions, query, canManage, canApprove,
   const downloadDocument = async (file) => {
     setDocumentMessage('');
     try {
-      const stored = file.storage === 'indexeddb' ? await loadAttachment(file.id) : null;
+      const stored = ['indexeddb', 'supabase'].includes(file.storage) ? await loadAttachment(file) : null;
       if (!stored?.blob) { setDocumentMessage('This older record retained the document name only; its file content is unavailable.'); return; }
       const url = URL.createObjectURL(stored.blob);
       const link = document.createElement('a');

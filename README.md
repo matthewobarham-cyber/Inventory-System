@@ -11,7 +11,7 @@ npm install
 npm run dev:electron
 ```
 
-The application remains local by default. Electron stores inventory data in `inventory-store.json` under the current Windows user's application-data directory, while browser-only development uses that browser profile's `localStorage`. Supabase can optionally provide shared authentication and user-profile storage. `npm run dev:full` remains as a compatibility alias for `npm run dev:electron`.
+The application remains local by default. Electron stores inventory data in `inventory-store.json` under the current Windows user's application-data directory, while browser-only development uses that browser profile's `localStorage`. When Supabase is configured, authentication, operational inventory entities, CSV imports, and disposal attachments synchronize through the shared cloud workspace while the local copy remains a performance/offline cache. `npm run dev:full` remains as a compatibility alias for `npm run dev:electron`.
 
 The seeded administrator demo account appears on the sign-in screen when Supabase is not configured. Demo sign-in is intentionally disabled in cloud mode.
 
@@ -36,7 +36,7 @@ npm run build
 npm run preview:web
 ```
 
-The build produces both `dist/index.html` for Electron and `dist/web.html` for web hosting. Inventory and operational records remain in the browser profile's `localStorage`; Supabase configuration adds shared account authentication and profiles, not shared inventory records.
+The build produces both `dist/index.html` for Electron and `dist/web.html` for web hosting. Without Supabase, records remain in that browser profile's `localStorage`. With Supabase configured, authenticated devices share the same operational inventory workspace.
 
 For a production-like run (built bundle, no dev server):
 
@@ -60,10 +60,11 @@ Roles gate the nav: Admin sees everything; Student assistants lose Reports/Users
 When configured, passwords are handled by Supabase Auth and account details are stored in `public.profiles`. Passwords are never placed in the inventory JSON or the `profiles` table.
 
 1. Create a Supabase project.
-2. Run both migrations in order in the Supabase SQL Editor, or apply them with the Supabase CLI:
+2. Run all migrations in order in the Supabase SQL Editor, or apply them with the Supabase CLI:
    - `supabase/migrations/202608110001_auth_profiles.sql`
    - `supabase/migrations/202608110002_csv_import_storage.sql`
-3. Deploy the administrator account function with `supabase functions deploy admin-create-user`.
+   - `supabase/migrations/202608150001_shared_inventory_workspace.sql`
+3. Deploy the administrator functions with `supabase functions deploy admin-create-user` and `supabase functions deploy admin-reset-password`.
 4. Create the first administrator in Authentication > Users. The database trigger creates its profile as Staff; promote it once in the SQL Editor:
 
 ```sql
@@ -76,11 +77,13 @@ where email = 'your.admin@uwi.edu';
 6. In Authentication > URL Configuration, set the site URL and add the exact `VITE_SUPABASE_PASSWORD_RESET_REDIRECT_URL` value to the allowed redirect URLs.
 7. Restart Vite or Electron after changing `.env`.
 
+The complete database upload and verification procedure is in [`SUPABASE_SETUP.md`](SUPABASE_SETUP.md).
+
 Once enabled, users can request recovery from the login screen. Administrators can also open Settings > Users, select an account, and send its recovery email. The recovery link opens the web entry, verifies the Supabase recovery session, and asks the user to choose a new password.
 
 ## Data
 
-Seeded equipment records cover 8 buildings and 39 equipment classes (two bundled 3D model packs — see `public/uploads/`). Electron and the browser keep a durable local cache, so navigating between screens never queries Supabase. With Supabase enabled, interpreted CSV assets, procurement records, and import history are uploaded to a shared archive. At sign-in the app checks a lightweight import cursor and downloads the archive only when a newer import exists; local operational edits remain preferred over the original imported snapshot.
+Seeded equipment records cover 8 buildings and 39 equipment classes (two bundled 3D model packs — see `public/uploads/`). Electron and the browser keep a durable local cache, so navigation never waits on a network query. With Supabase enabled, the app hydrates the canonical shared workspace at sign-in, publishes record-level changes in the background, and listens for changes made by other devices.
 
 ## Project layout
 

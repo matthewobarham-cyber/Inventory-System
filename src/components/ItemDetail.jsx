@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Inv3D } from '../three-engine.js';
 import { glbUrlForItem, money, longDate, daysBetween, statusTagStyle, today, iso, SHOW_WATERMARK, effStatus } from '../data.js';
-import { IconArrowLeft, IconRefresh, IconCheckoutArrow } from '../icons.jsx';
+import { IconArrowLeft, IconCheckoutArrow } from '../icons.jsx';
 import BarcodeLabelModal, { BarcodeGraphic } from './BarcodeLabelModal.jsx';
 import { bookValueFor, expectedReplacementFor } from '../lifecycle.js';
 import StocktakeFlag from './StocktakeFlag.jsx';
@@ -11,21 +11,11 @@ export default function ItemDetail({
   pendingOrder, pendingPlacement, onViewOrder, onOpenPlacements, onAddBarcodeToPrintSheet, barcodeQueued = false,
   canToggleBorrowing = false, onToggleBorrowing
 }) {
-  const [spin, setSpin] = useState(true);
   const [labelOpen, setLabelOpen] = useState(false);
 
   useEffect(() => {
     Inv3D.sync();
   }, [item.model]);
-
-  const toggleSpin = async () => {
-    const on = Inv3D.toggleSpin();
-    setSpin(on);
-  };
-  const resetView = async () => {
-    Inv3D.resetDetail();
-    setSpin(true);
-  };
 
   const past = useMemo(() => history.filter((h) => h.itemId === item.id), [history, item.id]);
   const todayIso = iso(today());
@@ -110,13 +100,7 @@ export default function ItemDetail({
                 <img src="brand/msbm-lockup.png" alt="" style={{ position: 'absolute', left: 16, bottom: 14, width: 84, height: 'auto', opacity: .15, pointerEvents: 'none' }} />
               )}
             </div>
-            <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', borderTop: '1px solid #eceff3' }}>
-              <button type="button" className="btn-ghost" onClick={toggleSpin} style={{ height: 31, display: 'flex', alignItems: 'center', gap: 7, padding: '0 11px', borderRadius: 7, fontSize: 12, fontWeight: 500 }}>
-                <IconRefresh />
-                <span>{spin ? 'Pause rotation' : 'Resume rotation'}</span>
-              </button>
-              <button type="button" className="btn-ghost" onClick={resetView} style={{ height: 31, padding: '0 11px', borderRadius: 7, fontSize: 12, fontWeight: 500 }}>Reset view</button>
-              <div style={{ flex: 1 }}></div>
+            <div style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '11px 14px', borderTop: '1px solid #eceff3' }}>
               <span style={{ fontSize: 11, color: '#8d99a6' }}>Drag to orbit · scroll to zoom</span>
             </div>
           </div>
@@ -182,9 +166,9 @@ export default function ItemDetail({
                   <span>{borrowingApproved ? 'Loanable' : 'Restricted'}</span>
                   <span aria-hidden="true" style={{ width: 30, height: 18, padding: 2, display: 'flex', justifyContent: borrowingApproved ? 'flex-end' : 'flex-start', alignItems: 'center', borderRadius: 999, background: borrowingApproved ? '#23845f' : '#9aa5af', transition: 'background .18s ease' }}><i style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(20,35,45,.25)' }} /></span>
                 </button>}
-                <button type="button" onClick={() => setLabelOpen(true)} title="Preview barcode label" style={{ padding: '7px 9px', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 8, cursor: 'pointer', maxWidth: 190 }}>
+                {!isStaff && <button type="button" onClick={() => setLabelOpen(true)} title="Preview barcode label" style={{ padding: '7px 9px', background: '#fff', border: '1px solid #dfe3e9', borderRadius: 8, cursor: 'pointer', maxWidth: 190 }}>
                   <BarcodeGraphic value={item.tag} height={30} width={1.3} displayValue={false} />
-                </button>
+                </button>}
                 <span style={statusTagStyle(st)}>{st}</span>
               </div>
             </div>
@@ -241,13 +225,13 @@ export default function ItemDetail({
               {canDelete && item.invoiceRequired && !item.invoiceGenerated && (
                 <button type="button" className="btn-ghost" onClick={onGenerateInvoice} style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500 }}>Generate invoice</button>
               )}
-              <button
+              {!isStaff && <button
                 type="button"
                 className="btn-ghost"
                 onClick={() => onAddBarcodeToPrintSheet?.(item)}
                 title="Send this barcode to the Scanner Console print queue"
                 style={{ height: 36, padding: '0 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}
-              >Print barcode</button>
+              >Print barcode</button>}
             </div>
           </div>
 
@@ -283,7 +267,7 @@ export default function ItemDetail({
           </div>
         </div>
       </div>
-      <BarcodeLabelModal open={labelOpen} item={item} onClose={() => setLabelOpen(false)} onAddToPrintSheet={onAddBarcodeToPrintSheet} isInPrintSheet={barcodeQueued} />
+      {!isStaff && <BarcodeLabelModal open={labelOpen} item={item} onClose={() => setLabelOpen(false)} onAddToPrintSheet={onAddBarcodeToPrintSheet} isInPrintSheet={barcodeQueued} />}
     </div>
   );
 }

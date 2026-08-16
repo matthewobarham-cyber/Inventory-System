@@ -23,6 +23,9 @@ const greenPcb = mat(0x174f3b, .48, .12);
 const copper = mat(0xb66b2c, .24, .78);
 const gold = mat(0xd2a948, .2, .82);
 const cyan = mat(0x37bfe5, .18, .32, { emissive: 0x08769e, emissiveIntensity: .85 });
+const carbon = mat(0x161d22, .3, .72);
+const titanium = mat(0x536572, .2, .75);
+const greenLight = mat(0x43e39d, .18, .25, { emissive: 0x087544, emissiveIntensity: 1.4 });
 
 const roundedGeometryCache = new Map();
 const cylinderGeometryCache = new Map();
@@ -1984,6 +1987,135 @@ function buildPowerBank() {
   return g;
 }
 
+function buildFuturisticDrone() {
+  const g = new THREE.Group(); g.name = 'Futuristic professional cinema drone';
+  const lens = mat(0x081723, .08, .28, { emissive: 0x08283d, emissiveIntensity: .45 });
+  const redLight = mat(0xff4b52, .2, .25, { emissive: 0xb51019, emissiveIntensity: 1.5 });
+
+  box(g, [1.18, .28, .82], carbon, [0, .67, 0], null, .16, 'Aerodynamic carbon-fibre fuselage');
+  box(g, [.88, .11, .68], titanium, [0, .86, -.02], null, .13, 'Titanium upper shell');
+  box(g, [.54, .055, .4], navy, [0, .925, -.02], null, .08, 'Navigation module');
+  box(g, [.3, .018, .16], screen, [0, .957, .08], null, .035, 'Flight telemetry display');
+  for (let vent = 0; vent < 5; vent += 1) box(g, [.055, .02, .2], black, [-.25 + vent * .125, .925, -.2], null, .01, 'Cooling vent');
+
+  const motorPositions = [[-1.18, -.9], [1.18, -.9], [-1.18, .9], [1.18, .9]];
+  for (let index = 0; index < motorPositions.length; index += 1) {
+    const [x, z] = motorPositions[index];
+    rod(g, [Math.sign(x) * .43, .7, Math.sign(z) * .26], [x, .75, z], .075, carbon);
+    rod(g, [Math.sign(x) * .5, .72, Math.sign(z) * .29], [x, .77, z], .025, titanium);
+    cylinder(g, .17, .18, graphite, [x, .78, z], null, 36, 'Brushless motor');
+    cylinder(g, .105, .205, titanium, [x, .81, z], null, 32, 'Motor cap');
+    ring(g, .48, .035, carbon, [x, .82, z], [Math.PI / 2, 0, 0], 56);
+    for (let spoke = 0; spoke < 4; spoke += 1) {
+      const angle = spoke * Math.PI / 2;
+      rod(g, [x, .81, z], [x + Math.cos(angle) * .45, .81, z + Math.sin(angle) * .45], .016, titanium);
+    }
+    for (let blade = 0; blade < 2; blade += 1) {
+      const rotor = box(g, [.82, .018, .085], blade ? graphite : black, [x, .91 + blade * .006, z], [0, blade * Math.PI / 2 + index * .18, 0], .035, 'Carbon propeller');
+      rotor.scale.x = .96;
+    }
+    cylinder(g, .045, .025, index < 2 ? redLight : greenLight, [x, .925, z], null, 18, 'Navigation light');
+  }
+
+  cylinder(g, .19, .15, graphite, [0, .43, .38], [Math.PI / 2, 0, 0], 36, 'Three-axis camera gimbal');
+  ring(g, .22, .025, titanium, [0, .43, .43], null, 40);
+  box(g, [.42, .34, .34], graphite, [0, .37, .55], null, .09, 'Cinema camera body');
+  cylinder(g, .145, .2, black, [0, .38, .77], [Math.PI / 2, 0, 0], 40, 'Camera lens barrel');
+  cylinder(g, .1, .215, lens, [0, .38, .79], [Math.PI / 2, 0, 0], 40, 'Optical lens');
+  cylinder(g, .035, .22, glass, [-.18, .42, .73], [Math.PI / 2, 0, 0], 24, 'Obstacle sensor');
+  cylinder(g, .035, .22, glass, [.18, .42, .73], [Math.PI / 2, 0, 0], 24, 'Obstacle sensor');
+  for (const side of [-1, 1]) {
+    rod(g, [side * .32, .54, -.18], [side * .48, .13, -.34], .035, titanium);
+    box(g, [.38, .055, .12], rubber, [side * .53, .1, -.34], null, .025, 'Landing skid');
+  }
+  return g;
+}
+
+function buildBroadbandModem() {
+  const g = new THREE.Group(); g.name = 'Premium broadband gateway';
+  box(g, [1.82, .44, 1.18], graphite, [0, .34, 0], null, .14, 'Ventilated gateway chassis');
+  box(g, [1.62, .055, .98], carbon, [0, .59, 0], null, .1, 'Brushed top panel');
+  box(g, [1.52, .26, .035], black, [0, .35, .61], null, .07, 'Front status panel');
+  for (let led = 0; led < 6; led += 1) cylinder(g, .025, .025, led < 5 ? greenLight : cyan, [-.55 + led * .22, .35, .635], [Math.PI / 2, 0, 0], 16, 'Connection status');
+  box(g, [.34, .12, .02], screen, [.55, .35, .637], null, .025, 'Network display');
+  for (let vent = 0; vent < 12; vent += 1) box(g, [.045, .018, .62], black, [-.67 + vent * .122, .63, -.08], null, .009, 'Cooling slot');
+  for (const x of [-.62, .62]) {
+    cylinder(g, .055, 1.18, graphite, [x, 1.05, -.38], [0, 0, x < 0 ? -.12 : .12], 22, 'High-gain antenna');
+    cylinder(g, .07, .14, titanium, [x, .48, -.38], null, 24, 'Antenna hinge');
+  }
+  box(g, [1.38, .25, .035], black, [0, .35, -.61], null, .05, 'Rear IO panel');
+  for (let port = 0; port < 4; port += 1) {
+    box(g, [.2, .13, .05], navy, [-.43 + port * .28, .35, -.64], null, .018, 'Gigabit ethernet port');
+    for (let contact = 0; contact < 4; contact += 1) box(g, [.012, .045, .012], gold, [-.49 + port * .28 + contact * .04, .37, -.67], null, .003);
+  }
+  cylinder(g, .055, .05, cyan, [.7, .35, -.64], [Math.PI / 2, 0, 0], 20, 'Power key');
+  for (const x of [-.65, .65]) box(g, [.32, .045, .26], rubber, [x, .085, 0], null, .025, 'Non-slip foot');
+  return g;
+}
+
+function buildCameraTripod() {
+  const g = new THREE.Group(); g.name = 'Professional carbon camera tripod';
+  cylinder(g, .18, .18, graphite, [0, 1.78, 0], null, 32, 'Fluid head');
+  box(g, [.66, .08, .38], aluminium, [0, 1.93, 0], null, .035, 'Quick-release plate');
+  cylinder(g, .11, .18, navy, [0, 1.63, 0], null, 28, 'Levelling bowl');
+  rod(g, [.1, 1.83, 0], [.72, 1.48, .22], .035, graphite);
+  cylinder(g, .07, .12, rubber, [.77, 1.45, .24], [0, 0, Math.PI / 2], 24, 'Pan handle grip');
+  cylinder(g, .075, .72, carbon, [0, 1.22, 0], null, 24, 'Centre column');
+  cylinder(g, .15, .16, titanium, [0, 1.18, 0], null, 28, 'Tripod spider');
+  for (let leg = 0; leg < 3; leg += 1) {
+    const angle = -Math.PI / 2 + leg * Math.PI * 2 / 3;
+    const knee = [Math.cos(angle) * .38, .76, Math.sin(angle) * .38];
+    const foot = [Math.cos(angle) * .82, .08, Math.sin(angle) * .82];
+    rod(g, [Math.cos(angle) * .1, 1.16, Math.sin(angle) * .1], knee, .065, carbon);
+    rod(g, knee, foot, .052, titanium);
+    cylinder(g, .078, .15, graphite, knee, null, 24, 'Leg lock');
+    box(g, [.28, .07, .16], rubber, foot, [0, -angle, 0], .04, 'Rubber foot');
+  }
+  cylinder(g, .038, .09, cyan, [.18, 1.76, .14], [Math.PI / 2, 0, 0], 18, 'Bubble level');
+  return g;
+}
+
+function buildCctvCamera() {
+  const g = new THREE.Group(); g.name = 'Premium weatherproof CCTV camera';
+  const lens = mat(0x081723, .08, .28, { emissive: 0x08283d, emissiveIntensity: .45 });
+  cylinder(g, .34, .9, graphite, [0, .78, .08], [0, 0, Math.PI / 2], 40, 'Weatherproof camera housing');
+  cylinder(g, .29, .08, black, [.49, .78, .08], [0, 0, Math.PI / 2], 40, 'Front bezel');
+  cylinder(g, .2, .1, lens, [.54, .78, .08], [0, 0, Math.PI / 2], 40, '4K optical lens');
+  ring(g, .255, .025, silver, [.555, .78, .08], [0, Math.PI / 2, 0], 40);
+  for (let led = 0; led < 8; led += 1) {
+    const angle = led * Math.PI * 2 / 8;
+    cylinder(g, .025, .12, mat(0xe7eef2, .2, .2, { emissive: 0xb9d8e8, emissiveIntensity: .6 }), [.57, .78 + Math.cos(angle) * .25, .08 + Math.sin(angle) * .25], [0, 0, Math.PI / 2], 14, 'Infrared LED');
+  }
+  box(g, [1.18, .08, .82], titanium, [.03, 1.15, .04], null, .055, 'Sun and rain shield');
+  box(g, [.95, .05, .7], carbon, [.12, 1.2, .04], null, .045);
+  box(g, [.18, .36, .22], graphite, [-.48, .59, .08], null, .06, 'Adjustable bracket');
+  rod(g, [-.48, .44, .08], [-.78, .18, .08], .07, titanium);
+  cylinder(g, .3, .09, aluminium, [-.86, .12, .08], null, 32, 'Wall mount');
+  for (let bolt = 0; bolt < 4; bolt += 1) {
+    const angle = Math.PI / 4 + bolt * Math.PI / 2;
+    cylinder(g, .025, .11, black, [-.86 + Math.cos(angle) * .18, .12, .08 + Math.sin(angle) * .18], null, 14, 'Mounting bolt');
+  }
+  cylinder(g, .025, .05, greenLight, [.35, .51, .39], [Math.PI / 2, 0, 0], 14, 'Camera status');
+  return g;
+}
+
+function buildBlueEthernetCable() {
+  const g = new THREE.Group(); g.name = 'Premium blue Cat6 ethernet cable';
+  const cableBlue = mat(0x167bb6, .48, .12);
+  for (const radius of [.63, .5, .37]) ring(g, radius, .042, cableBlue, [0, .42 + (.63 - radius) * .05, 0], [Math.PI / 2, 0, 0], 64);
+  rod(g, [-.63, .43, 0], [-1.02, .44, .25], .04, cableBlue);
+  rod(g, [.63, .43, 0], [1.02, .44, -.25], .04, cableBlue);
+  for (const [x, z, side] of [[-1.13, .31, -1], [1.13, -.31, 1]]) {
+    box(g, [.38, .18, .28], glass, [x, .44, z], [0, side * .36, 0], .035, 'Transparent RJ45 plug');
+    box(g, [.18, .21, .31], cableBlue, [x - side * .24, .44, z + side * .09], [0, side * .36, 0], .045, 'Strain relief');
+    for (let pin = 0; pin < 8; pin += 1) box(g, [.012, .018, .15], gold, [x - .055 + pin * .016, .535, z], [0, side * .36, 0], .002, 'RJ45 contact');
+    box(g, [.2, .025, .32], silver, [x, .55, z], [0, side * .36, 0], .01, 'Locking clip');
+  }
+  box(g, [.46, .08, .22], navy, [0, .36, -.61], null, .035, 'Cat6 cable marker');
+  box(g, [.27, .01, .11], cyan, [0, .405, -.61], null, .018, 'CAT6 label');
+  return g;
+}
+
 function buildPdu() {
   const g = new THREE.Group(); g.name = 'Premium rack power distribution unit';
   box(g, [2.2, .38, .42], graphite, [0, .31, 0], null, .055, 'Rack PDU enclosure');
@@ -2143,6 +2275,11 @@ const definitions = [
   ['flatbed-scanner', officePath, buildFlatbedScanner],
   ['keyboard', officePath, buildFullKeyboard],
   ['graphics-workstation', generatedPath, buildGraphicsWorkstation]
+  ,['drone', generatedPath, buildFuturisticDrone]
+  ,['broadband-modem', generatedPath, buildBroadbandModem]
+  ,['camera-tripod', generatedPath, buildCameraTripod]
+  ,['cctv-camera', generatedPath, buildCctvCamera]
+  ,['blue-ethernet-cable', corePath, buildBlueEthernetCable]
 ];
 const requested = new Set(process.argv.slice(2));
 const exporter = new GLTFExporter();

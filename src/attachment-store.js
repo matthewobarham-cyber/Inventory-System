@@ -28,14 +28,54 @@ function transact(mode, operation) {
   }));
 }
 
-export function saveAttachment(id, file) {
-  return transact('readwrite', (store) => store.put({ id, blob: file, name: file.name, type: file.type, size: file.size, savedAt: new Date().toISOString() }));
+export async function saveAttachment(id, file) {
+  if (supabaseConfigured) return uploadWorkspaceAttachment(id, file);
+  await transact('readwrite', (store) => store.put({ id, blob: file, name: file.name, type: file.type, size: file.size, savedAt: new Date().toISOString() }));
+  return { id, name: file.name, type: file.type, size: file.size, storage: 'indexeddb' };
 }
 
-export function loadAttachment(id) {
+export async function loadAttachment(fileOrId) {
+  if (fileOrId && typeof fileOrId === 'object' && fileOrId.storage === 'supabase' && fileOrId.path) {
+    const blob = await downloadWorkspaceAttachment(fileOrId.path);
+    return { ...fileOrId, blob };
+  }
+  const id = typeof fileOrId === 'object' ? fileOrId.id : fileOrId;
   return transact('readonly', (store) => store.get(id));
 }
 
-export function deleteAttachment(id) {
+export function deleteAttachment(fileOrId) {
+  if (fileOrId && typeof fileOrId === 'object' && fileOrId.storage === 'supabase' && fileOrId.path) {
+    return deleteWorkspaceAttachment(fileOrId.path);
+  }
+  const id = typeof fileOrId === 'object' ? fileOrId.id : fileOrId;
   return transact('readwrite', (store) => store.delete(id));
 }
+
+/** Upload legacy IndexedDB disposal files during the first cloud bootstrap. */
+export async function migrateWorkspaceAttachments(snapshot = {}) {
+  if (!supabaseConfigured || !Array.isArray(snapshot.lifecycleActions)) return snapshot;
+  let changed = false;
+  const lifecycleActions = await Promise.all(snapshot.lifecycleActions.map(async (action) => {
+    if (!Array.isArray(action.documents) || !action.documents.some((file) => file.storage === 'indexeddb')) return action;
+    const documents = await Promise.all(action.documents.map(async (file) => {
+      if (file.storage !== 'indexeddb') return file;
+      try {
+        const stored = await loadAttachment(file);
+        if (!stored?.blob) return file;
+        changed = true;
+        return await uploadWorkspaceAttachment(file.id, new File([stored.blob], file.name || stored.name || 'attachment', { type: file.type || stored.type || 'application/octet-stream' }));
+      } catch (error) {
+        console.warn('Legacy disposal attachment could not be uploaded', file.id, error);
+        return file;
+      }
+    }));
+    return { ...action, documents };
+  }));
+  return changed ? { ...snapshot, lifecycleActions } : snapshot;
+}
+import {
+  deleteWorkspaceAttachment,
+  downloadWorkspaceAttachment,
+  supabaseConfigured,
+  uploadWorkspaceAttachment
+} from './supabase.js';

@@ -6,3 +6,5 @@ server/*.sqlite
 server/*.sqlite-shm
 server/*.sqlite-wal
 .env
+.env.local
+.env.*.local
