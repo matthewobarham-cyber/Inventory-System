@@ -126,10 +126,14 @@ Deno.serve(async (request) => {
       }
 
       const requesterName = clean(loanRequest.by || profile.name) || 'MSBM staff member';
+      const requesterEmail = ownerEmail || clean(profile.email);
+      const requesterNameParts = requesterName.split(/\s+/).filter(Boolean);
+      const requesterLastName = requesterNameParts.pop() || 'MSBM staff member';
+      const requesterFirstName = requesterNameParts.join(' ');
       const itemName = clean(loanRequest.itemName || item.name) || 'Inventory item';
       const itemTag = clean(loanRequest.itemTag || item.tag) || 'Not recorded';
       const detailRows = [
-        ['Requester', requesterName], ['Requester email', ownerEmail || profile.email],
+        ['Requester', requesterName], ['Requester email', requesterEmail],
         ['Inventory item', itemName], ['Asset tag', itemTag],
         ['Model', clean(item.modelNumber || item.model) || 'Not recorded'],
         ['Location', [clean(item.location), clean(item.room)].filter(Boolean).join(' · ') || 'Not recorded'],
@@ -148,7 +152,12 @@ Deno.serve(async (request) => {
         body: JSON.stringify({
           subject: `[Equipment loan] ${itemName} — ${requesterName}`,
           departmentId: Deno.env.get('ZOHO_DEPARTMENT_ID'),
-          email: ownerEmail || clean(profile.email),
+          email: requesterEmail,
+          contact: {
+            email: requesterEmail,
+            firstName: requesterFirstName || undefined,
+            lastName: requesterLastName
+          },
           description,
           status: clean(Deno.env.get('ZOHO_TICKET_STATUS')) || 'Open',
           priority: clean(Deno.env.get('ZOHO_TICKET_PRIORITY')) || 'Medium',
