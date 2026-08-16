@@ -271,7 +271,7 @@ Deno.serve(async (request) => {
         const pdfBytes = await createLoanRequestPdf(pdfDetails, ticketNumber, recordId);
         const uploadForm = new FormData();
         uploadForm.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), filename);
-        const uploadResponse = await fetch(`${deskUrl.replace(/\/$/, '')}/api/v1/uploads`, {
+        const uploadResponse = await fetch(`${deskUrl.replace(/\/$/, '')}/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments`, {
           method: 'POST', headers: zohoHeaders, body: uploadForm
         });
         const upload = await responseBody(uploadResponse) as Record<string, unknown>;
@@ -279,7 +279,7 @@ Deno.serve(async (request) => {
         if (!uploadResponse.ok || !attachmentId) {
           const reason = zohoErrorMessage(upload, uploadResponse.statusText);
           const scopeHelp = uploadResponse.status === 401 || uploadResponse.status === 403
-            ? ' The Zoho refresh token must include Desk.tickets.ALL and the authorizing agent must be allowed to update tickets.'
+            ? ' The Zoho agent that authorized this integration must have permission to add ticket attachments.'
             : '';
           throw new Error(`Zoho PDF upload failed: ${reason}.${scopeHelp}`);
         }
