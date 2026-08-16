@@ -38,7 +38,10 @@ export default function Requests({ requests, role, sessionName, focusRequestId, 
           const actionable = role === 'Admin' && request.state === 'Pending';
           const sendingSince = Date.parse(request.helpdeskLastAttemptAt || request.helpdeskQueuedAt || '');
           const staleSending = request.helpdeskStatus === 'Sending' && (!Number.isFinite(sendingSince) || Date.now() - sendingSince > 120000);
-          const emailIncomplete = request.helpdeskStatus === 'Created' && request.helpdeskEmailStatus !== 'Sent';
+          const pdfEmailVerified = request.helpdeskEmailStatus === 'Sent'
+            && request.helpdeskPdfAttachmentKind === 'email-upload'
+            && Number(request.helpdeskEmailAttachmentCount || 0) > 0;
+          const emailIncomplete = request.helpdeskStatus === 'Created' && !pdfEmailVerified;
           const helpdeskRetryable = emailIncomplete || (request.helpdeskStatus !== 'Created' && (request.helpdeskStatus !== 'Sending' || staleSending));
           return (
             <article key={request.id} data-request-id={request.id} data-dashboard-focus={request.id === focusRequestId ? 'true' : undefined} data-workflow-unread={request.workflowUnread ? 'true' : undefined} onClick={() => onAcknowledge?.(request.id)} className={`request-card request-${request.state.toLowerCase()}`}>
@@ -53,8 +56,8 @@ export default function Requests({ requests, role, sessionName, focusRequestId, 
               </div>
               <div className="request-decision">
                 <span className={`request-status request-status-${request.state.toLowerCase()}`}><i />{request.state}</span>
-                {!requisition && request.helpdeskStatus === 'Created' && request.helpdeskEmailStatus === 'Sent' && <small className="request-helpdesk-status success">Zoho ticket <b>#{request.helpdeskTicketNumber || request.helpdeskTicketId}</b> created · PDF emailed</small>}
-                {!requisition && request.helpdeskStatus === 'Created' && request.helpdeskEmailStatus !== 'Sent' && <small className="request-helpdesk-status failed" title={request.helpdeskEmailError || ''}>Zoho ticket <b>#{request.helpdeskTicketNumber || request.helpdeskTicketId}</b> created · PDF email needs attention{role === 'Admin' && request.helpdeskEmailError ? `: ${request.helpdeskEmailError}` : ''}</small>}
+                {!requisition && request.helpdeskStatus === 'Created' && pdfEmailVerified && <small className="request-helpdesk-status success">Zoho ticket <b>#{request.helpdeskTicketNumber || request.helpdeskTicketId}</b> created · PDF emailed</small>}
+                {!requisition && request.helpdeskStatus === 'Created' && !pdfEmailVerified && <small className="request-helpdesk-status failed" title={request.helpdeskEmailError || ''}>Zoho ticket <b>#{request.helpdeskTicketNumber || request.helpdeskTicketId}</b> created · PDF email needs attention{role === 'Admin' && request.helpdeskEmailError ? `: ${request.helpdeskEmailError}` : ''}</small>}
                 {!requisition && request.helpdeskStatus === 'Sending' && <small className="request-helpdesk-status sending">Creating Zoho ticket…</small>}
                 {!requisition && request.helpdeskStatus !== 'Created' && request.helpdeskStatus !== 'Sending' && <small className="request-helpdesk-status failed" title={request.helpdeskError || ''}>Helpdesk delivery needs attention{role === 'Admin' && request.helpdeskError ? `: ${request.helpdeskError}` : ''}</small>}
                 {requisition && request.state === 'Approved' && <small>Approved by {request.approvedBy || 'IT management'}<br />Order workflow generated</small>}

@@ -145,7 +145,9 @@ Deno.serve(async (request) => {
       return json({ error: 'You may only submit your own borrowing request.' }, 403);
     }
     if (loanRequest.type === 'Requisition') return json({ error: 'Purchase requisitions do not use the loan helpdesk workflow.' }, 400);
-    if (clean(loanRequest.helpdeskTicketId) && clean(loanRequest.helpdeskEmailStatus) === 'Sent') {
+    const hasVerifiedPdfEmail = clean(loanRequest.helpdeskPdfAttachmentKind) === 'email-upload'
+      && Number(loanRequest.helpdeskEmailAttachmentCount || 0) > 0;
+    if (clean(loanRequest.helpdeskTicketId) && clean(loanRequest.helpdeskEmailStatus) === 'Sent' && hasVerifiedPdfEmail) {
       console.info(JSON.stringify({ event: 'zoho_duplicate_prevented', requestId: recordId, ticketNumber: clean(loanRequest.helpdeskTicketNumber) }));
       return json({ ticketCreated: true, emailSent: true, duplicatePrevented: true, request: loanRequest });
     }
@@ -258,34 +260,39 @@ Deno.serve(async (request) => {
       if (!fromEmail) throw new Error('Zoho PDF email is not configured (ZOHO_FROM_EMAIL).');
       if (!requesterEmail || !requesterEmail.includes('@')) throw new Error('The requester does not have a valid email address.');
 
-      let attachmentId = clean(requestPayload.helpdeskPdfAttachmentId);
       const filename = `MSBM-loan-request-${pdfText(recordId).replace(/[^A-Za-z0-9_-]/g, '-')}.pdf`;
-      if (!attachmentId) {
-        const pdfDetails: Array<[string, unknown]> = [
-          ['Requester', requesterName], ['Requester email', requesterEmail], ['Requested equipment', itemName],
-          ['Asset tag', itemTag], ['Model', clean(item.modelNumber || item.model) || 'Not recorded'],
-          ['Location', [clean(item.location), clean(item.room)].filter(Boolean).join(' - ') || 'Not recorded'],
-          ['Request purpose', clean(loanRequest.need) || 'Borrowing request'], ['Request status', clean(loanRequest.state) || 'Pending review'],
-          ['Submitted', clean(loanRequest.submittedOn || loanRequest.when) || now]
-        ];
-        const pdfBytes = await createLoanRequestPdf(pdfDetails, ticketNumber, recordId);
-        const uploadForm = new FormData();
-        uploadForm.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), filename);
-        const uploadResponse = await fetch(`${deskUrl.replace(/\/$/, '')}/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments`, {
-          method: 'POST', headers: zohoHeaders, body: uploadForm
-        });
-        const upload = await responseBody(uploadResponse) as Record<string, unknown>;
-        attachmentId = clean(upload.id);
-        if (!uploadResponse.ok || !attachmentId) {
-          const reason = zohoErrorMessage(upload, uploadResponse.statusText);
-          const scopeHelp = uploadResponse.status === 401 || uploadResponse.status === 403
-            ? ' The Zoho agent that authorized this integration must have permission to add ticket attachments.'
-            : '';
-          throw new Error(`Zoho PDF upload failed: ${reason}.${scopeHelp}`);
-        }
-        await updateRequest({ helpdeskPdfAttachmentId: attachmentId, helpdeskPdfFilename: filename });
-        console.info(JSON.stringify({ event: 'zoho_pdf_uploaded', requestId: recordId, ticketNumber }));
+      const pdfDetails: Array<[string, unknown]> = [
+        ['Requester', requesterName], ['Requester email', requesterEmail], ['Requested equipment', itemName],
+        ['Asset tag', itemTag], ['Model', clean(item.modelNumber || item.model) || 'Not recorded'],
+        ['Location', [clean(item.location), clean(item.room)].filter(Boolean).join(' - ') || 'Not recorded'],
+        ['Request purpose', clean(loanRequest.need) || 'Borrowing request'], ['Request status', clean(loanRequest.state) || 'Pending review'],
+        ['Submitted', clean(loanRequest.submittedOn || loanRequest.when) || now]
+      ];
+      const pdfBytes = await createLoanRequestPdf(pdfDetails, ticketNumber, recordId);
+      const uploadForm = new FormData();
+      uploadForm.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), filename);
+
+      // sendReply accepts temporary IDs returned by /uploads. A permanent ticket
+      // attachment ID is a different resource and Zoho silently omits it from mail.
+      // Upload afresh for every retry because upload IDs can be consumed/expire.
+      const uploadResponse = await fetch(`${deskUrl.replace(/\/$/, '')}/api/v1/uploads`, {
+        method: 'POST', headers: zohoHeaders, body: uploadForm
+      });
+      const upload = await responseBody(uploadResponse) as Record<string, unknown>;
+      const attachmentId = clean(upload.id);
+      if (!uploadResponse.ok || !attachmentId) {
+        const reason = zohoErrorMessage(upload, uploadResponse.statusText);
+        const scopeHelp = uploadResponse.status === 401 || uploadResponse.status === 403
+          ? ' Reauthorize Zoho with both Desk.tickets.ALL and Desk.basic.CREATE, then update ZOHO_REFRESH_TOKEN.'
+          : '';
+        throw new Error(`Zoho email attachment upload failed: ${reason}.${scopeHelp}`);
       }
+      await updateRequest({
+        helpdeskPdfAttachmentId: attachmentId,
+        helpdeskPdfAttachmentKind: 'email-upload',
+        helpdeskPdfFilename: filename
+      });
+      console.info(JSON.stringify({ event: 'zoho_email_pdf_uploaded', requestId: recordId, ticketNumber }));
 
       const emailContent = `<div style="font-family:Arial,sans-serif;color:#243540;line-height:1.55"><h2 style="color:#123f5c">Your MSBM equipment request was received</h2><p>Hello ${escapeHtml(requesterName)},</p><p>IT Services received your request for <strong>${escapeHtml(itemName)}</strong>${itemTag !== 'Not recorded' ? ` (${escapeHtml(itemTag)})` : ''}.</p><p>Your Zoho Desk reference is <strong>#${escapeHtml(ticketNumber)}</strong>. The attached PDF contains your request details. Please retain it for your records.</p><p>This message confirms receipt only; IT Services will contact you after reviewing availability and borrowing eligibility.</p><p>Regards,<br><strong>MSBM IT Services</strong><br>Mona School of Business &amp; Management</p></div>`;
       const replyResponse = await fetch(`${deskUrl.replace(/\/$/, '')}/api/v1/tickets/${encodeURIComponent(ticketId)}/sendReply?sendImmediately=true`, {
@@ -299,9 +306,19 @@ Deno.serve(async (request) => {
       const reply = await responseBody(replyResponse) as Record<string, unknown>;
       if (!replyResponse.ok) throw new Error(`Zoho PDF email failed: ${zohoErrorMessage(reply, replyResponse.statusText)}`);
 
+      const replyAttachments = Array.isArray(reply.attachments) ? reply.attachments : [];
+      const attachmentCount = Number(reply.attachmentCount || replyAttachments.length || 0);
+      const replyStatus = clean(reply.status).toUpperCase();
+      if (replyStatus === 'FAILED') throw new Error('Zoho accepted the reply request but reported that delivery failed.');
+      if (!reply.hasAttach && attachmentCount < 1 && replyAttachments.length < 1) {
+        throw new Error('Zoho created the email reply but omitted the PDF attachment. The message was not marked as successfully sent.');
+      }
+
       const payload = await updateRequest({
         helpdeskStatus: 'Created', helpdeskEmailStatus: 'Sent', helpdeskEmailSentAt: new Date().toISOString(),
-        helpdeskEmailThreadId: clean(reply.id), helpdeskEmailError: '', helpdeskError: ''
+        helpdeskEmailThreadId: clean(reply.id), helpdeskEmailZohoStatus: replyStatus || 'SUCCESS',
+        helpdeskEmailAttachmentCount: Math.max(attachmentCount, replyAttachments.length),
+        helpdeskEmailError: '', helpdeskError: ''
       });
       console.info(JSON.stringify({ event: 'zoho_pdf_email_sent', requestId: recordId, ticketNumber }));
       return json({ ticketCreated: true, emailSent: true, ticketId, ticketNumber, ticketUrl, request: payload });

@@ -14,7 +14,8 @@ function Read-SecretText([string]$Prompt) {
 
 Write-Host ''
 Write-Host 'Zoho Desk OAuth setup for PDF attachments and requester email' -ForegroundColor Cyan
-Write-Host 'Generate a fresh Self Client code with scope: Desk.tickets.ALL' -ForegroundColor Yellow
+Write-Host 'Generate a fresh Self Client code with both scopes:' -ForegroundColor Yellow
+Write-Host 'Desk.tickets.ALL,Desk.basic.CREATE' -ForegroundColor Yellow
 Write-Host 'The values entered below are not printed or saved to PowerShell history.'
 Write-Host ''
 
