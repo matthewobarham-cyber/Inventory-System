@@ -373,7 +373,32 @@ export async function loadSupabaseWorkspaceSnapshot() {
  * preventing an asset edit on one device from replacing an unrelated loan or
  * stocktake created on another device.
  */
-export function saveSupabaseWorkspaceSnapshot(snapshot = {}) {
+function mayWriteWorkspaceChange(role, row, existed) {
+  if (role === 'Admin') return true;
+  if (role === 'Student assistant') {
+    if (['nav_overrides', 'borrow_category_access'].includes(row.entity_type)) return false;
+    // Operational assistants may append audit evidence, but existing audit
+    // records remain immutable unless an administrator changes them.
+    if (row.entity_type === 'audit_log') return !existed;
+    return true;
+  }
+  if (role === 'Staff') {
+    // RLS performs the final ownership check using payload.byEmail. Avoid
+    // offering unrelated inventory/settings changes from a Staff renderer in
+    // the first place, especially after a Realtime refresh.
+    if (row.entity_type === 'audit_log') return !existed;
+    return row.entity_type === 'requests' && !existed;
+  }
+  return false;
+}
+
+function mayDeleteWorkspaceRecord(role, entityType) {
+  if (role === 'Admin') return true;
+  return role === 'Student assistant'
+    && !['nav_overrides', 'borrow_category_access', 'audit_log'].includes(entityType);
+}
+
+export function saveSupabaseWorkspaceSnapshot(snapshot = {}, access = {}) {
   const requestedRows = workspaceRows(snapshot);
   workspaceSaveChain = workspaceSaveChain.catch(() => {}).then(async () => {
     const client = requireClient();
@@ -385,7 +410,12 @@ export function saveSupabaseWorkspaceSnapshot(snapshot = {}) {
       workspaceRecordKey(row.entity_type, row.record_id),
       workspaceRecordHash(row.payload, row.sort_index)
     ]));
-    const changed = rows.filter((row) => workspaceBaseline.get(workspaceRecordKey(row.entity_type, row.record_id)) !== workspaceRecordHash(row.payload, row.sort_index));
+    const role = String(access.role || 'Admin');
+    const changed = rows.filter((row) => {
+      const key = workspaceRecordKey(row.entity_type, row.record_id);
+      return workspaceBaseline.get(key) !== workspaceRecordHash(row.payload, row.sort_index)
+        && mayWriteWorkspaceChange(role, row, workspaceBaseline.has(key));
+    });
 
     for (let index = 0; index < changed.length; index += WORKSPACE_UPLOAD_CHUNK_SIZE) {
       const { error } = await client.from('workspace_records').upsert(changed.slice(index, index + WORKSPACE_UPLOAD_CHUNK_SIZE), {
@@ -398,6 +428,7 @@ export function saveSupabaseWorkspaceSnapshot(snapshot = {}) {
     workspaceBaseline.forEach((_, key) => {
       if (next.has(key)) return;
       const [entityType, recordId] = key.split('\u0000');
+      if (!mayDeleteWorkspaceRecord(role, entityType)) return;
       if (!removedByType.has(entityType)) removedByType.set(entityType, []);
       removedByType.get(entityType).push(recordId);
     });
@@ -422,8 +453,19 @@ export function saveSupabaseWorkspaceSnapshot(snapshot = {}) {
       if (error) throw error;
       workspaceInitialized = true;
     }
-    workspaceBaseline = next;
-    workspaceSortIndexes = new Map(rows.map((row) => [workspaceRecordKey(row.entity_type, row.record_id), row.sort_index]));
+    // Advance the database baseline only for rows this role actually wrote.
+    // Protected local differences remain excluded instead of being mistaken
+    // for successfully synchronized data.
+    changed.forEach((row) => {
+      const key = workspaceRecordKey(row.entity_type, row.record_id);
+      workspaceBaseline.set(key, workspaceRecordHash(row.payload, row.sort_index));
+      workspaceSortIndexes.set(key, row.sort_index);
+    });
+    removedByType.forEach((recordIds, entityType) => recordIds.forEach((recordId) => {
+      const key = workspaceRecordKey(entityType, recordId);
+      workspaceBaseline.delete(key);
+      workspaceSortIndexes.delete(key);
+    }));
     return { changed: changed.length, deleted: [...removedByType.values()].reduce((sum, ids) => sum + ids.length, 0) };
   });
   return workspaceSaveChain;

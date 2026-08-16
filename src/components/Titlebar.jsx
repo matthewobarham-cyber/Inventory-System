@@ -13,6 +13,12 @@ export default function Titlebar({ buildLabel }) {
     return off;
   }, []);
 
+  // Browser deployments use the browser's own chrome. Rendering the desktop
+  // title bar there duplicates window controls that cannot do anything and
+  // wastes vertical space. Electron exposes window.api through the preload
+  // bridge, so the native desktop build keeps the complete title bar.
+  if (!hasApi) return null;
+
   return (
     <div className="desktop-titlebar" style={{ height: 38, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', background: '#171c22', WebkitAppRegion: 'drag' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

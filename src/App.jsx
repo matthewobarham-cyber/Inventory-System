@@ -663,7 +663,12 @@ export default function App() {
         return;
       }
       if (cloudSession && sharedWorkspaceConnected) {
-        try { await saveSupabaseWorkspaceSnapshot(currentSharedWorkspace); }
+        try {
+          await saveSupabaseWorkspaceSnapshot(currentSharedWorkspace, {
+            role: session?.role,
+            email: session?.email
+          });
+        }
         catch (error) {
           if (cancelled) return;
           console.error('Shared inventory save failed', error);
@@ -688,7 +693,7 @@ export default function App() {
       if (retryTimer) clearTimeout(retryTimer);
       if (idleSave !== null && typeof cancelIdleCallback === 'function') cancelIdleCallback(idleSave);
     };
-  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, borrowCategoryAccess, persistenceEpoch, cloudSession, sharedWorkspaceConnected, currentSharedWorkspace]);
+  }, [items, history, requests, orders, placements, stocktakes, repairTickets, maintenanceSchedules, lifecycleActions, procurementRecords, importRuns, csvCloudCursor, auditLog, seenAlertIds, alertPreferences, navOverrides, userState, profileState, customAccounts, reservedBarcodes, approvedVendors, approvalContacts, maintenanceContacts, loanContacts, consumableUsage, borrowCategoryAccess, persistenceEpoch, cloudSession, sharedWorkspaceConnected, currentSharedWorkspace, session?.role, session?.email]);
 
   // Keep browser-style navigation local to the signed-in workspace.
   useEffect(() => {
@@ -767,7 +772,10 @@ export default function App() {
         try {
           // Publish any local edit already waiting in the debounce window before
           // applying another device's canonical record set.
-          await saveSupabaseWorkspaceSnapshot(currentSharedWorkspaceRef.current || {});
+          await saveSupabaseWorkspaceSnapshot(currentSharedWorkspaceRef.current || {}, {
+            role: session?.role,
+            email: session?.email
+          });
           const shared = await loadSupabaseWorkspaceSnapshot();
           if (!cancelled && !shared.empty) applySharedWorkspace(shared.world);
         } catch (error) {
@@ -780,7 +788,7 @@ export default function App() {
       if (reloadTimer) clearTimeout(reloadTimer);
       unsubscribe();
     };
-  }, [cloudSession, sharedWorkspaceConnected, session?.id, applySharedWorkspace]);
+  }, [cloudSession, sharedWorkspaceConnected, session?.id, session?.role, session?.email, applySharedWorkspace]);
 
   useEffect(() => {
     if (!session) return undefined;
