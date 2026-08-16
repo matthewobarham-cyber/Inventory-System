@@ -2007,9 +2007,12 @@ export default function App() {
         });
         const result = await createZohoLoanRequestTicket(loanRequest.id);
         if (result?.request) setRequests((current) => current.map((entry) => entry.id === loanRequest.id ? result.request : entry));
-        toast(result?.ticketCreated
-          ? `Request sent — Zoho ticket #${result.ticketNumber || result.ticketId} created`
-          : 'Your request is saved. Zoho delivery needs attention from IT.', { tone: result?.ticketCreated ? 'success' : 'warning' });
+        const ticketReference = result?.ticketNumber || result?.ticketId;
+        toast(result?.ticketCreated && result?.emailSent
+          ? `Request sent — Zoho ticket #${ticketReference} created and PDF emailed`
+          : result?.ticketCreated
+            ? `Zoho ticket #${ticketReference} created; PDF email needs attention`
+            : 'Your request is saved. Zoho delivery needs attention from IT.', { tone: result?.ticketCreated && result?.emailSent ? 'success' : 'warning' });
       } catch (error) {
         console.error('Zoho loan request delivery failed', error);
         setRequests((current) => current.map((entry) => entry.id === loanRequest.id ? { ...entry, helpdeskStatus: 'Failed', helpdeskError: error.message } : entry));
@@ -2024,7 +2027,11 @@ export default function App() {
     try {
       const result = await createZohoLoanRequestTicket(id);
       if (result?.request) setRequests((current) => current.map((request) => request.id === id ? result.request : request));
-      toast(result?.ticketCreated ? `Zoho ticket #${result.ticketNumber || result.ticketId} is linked` : (result?.warning || 'Zoho delivery is still unavailable'), { tone: result?.ticketCreated ? 'success' : 'warning' });
+      const ticketReference = result?.ticketNumber || result?.ticketId;
+      toast(result?.ticketCreated && result?.emailSent
+        ? `Zoho ticket #${ticketReference} is linked and the PDF was emailed`
+        : (result?.warning || (result?.ticketCreated ? `Zoho ticket #${ticketReference} is linked; PDF email needs attention` : 'Zoho delivery is still unavailable')),
+      { tone: result?.ticketCreated && result?.emailSent ? 'success' : 'warning' });
     } catch (error) {
       setRequests((current) => current.map((request) => request.id === id ? { ...request, helpdeskStatus: 'Failed', helpdeskError: error.message } : request));
       toast('Zoho delivery is still unavailable', { tone: 'warning' });
