@@ -86,7 +86,6 @@ async function createLoanRequestPdf(details: Array<[string, unknown]>, ticketNum
   const [lockupBytes, crestBytes] = await Promise.all([fetchBrandPng('msbm-lockup.png'), fetchBrandPng('msbm-crest.png')]);
   const lockup = lockupBytes ? await document.embedPng(lockupBytes) : null;
   const crest = crestBytes ? await document.embedPng(crestBytes) : null;
-  const form = document.getForm();
   const values = new Map(details.map(([label, value]) => [label, pdfText(value)]));
   const navy = rgb(0.045, 0.20, 0.31);
   const blue = rgb(0.03, 0.31, 0.55);
@@ -154,28 +153,27 @@ async function createLoanRequestPdf(details: Array<[string, unknown]>, ticketNum
   page.drawText('ELECTRONIC SIGNATURES', { x: 38, y: 279, size: 9, font: bold, color: ink });
   page.drawText('Type your full name in the applicable field. The completed document may be saved and returned electronically.', { x: 38, y: 265, size: 7.6, font: regular, color: muted });
 
-  const addSignatureField = (name: string, label: string, x: number) => {
+  const addSignatureField = (label: string, x: number) => {
     page.drawText(label, { x, y: 239, size: 7.1, font: bold, color: muted });
-    const field = form.createTextField(name);
-    field.addToPage(page, { x, y: 193, width: 236, height: 38, font: regular, textColor: ink, backgroundColor: rgb(1, 1, 1), borderColor: line, borderWidth: 0.8 });
+    page.drawRectangle({ x, y: 193, width: 236, height: 38, color: rgb(1, 1, 1), borderColor: line, borderWidth: 0.8 });
+    page.drawLine({ start: { x: x + 12, y: 205 }, end: { x: x + 224, y: 205 }, thickness: 0.55, color: line });
     page.drawText('Electronic signature / full legal name', { x: x + 8, y: 181, size: 6.6, font: regular, color: muted });
   };
-  addSignatureField('borrower_esignature', 'BORROWER E-SIGNATURE', 38);
-  addSignatureField('it_approval_esignature', 'IT SERVICES APPROVAL E-SIGNATURE', 303);
+  addSignatureField('BORROWER E-SIGNATURE', 38);
+  addSignatureField('IT SERVICES APPROVAL E-SIGNATURE', 303);
 
   page.drawText('DATE', { x: 38, y: 158, size: 7.1, font: bold, color: muted });
-  const borrowerDate = form.createTextField('borrower_signature_date');
-  borrowerDate.addToPage(page, { x: 38, y: 124, width: 120, height: 27, font: regular, textColor: ink, backgroundColor: pale, borderColor: line, borderWidth: 0.7 });
+  page.drawRectangle({ x: 38, y: 124, width: 120, height: 27, color: pale, borderColor: line, borderWidth: 0.7 });
+  page.drawText('YYYY-MM-DD', { x: 48, y: 134, size: 7.5, font: mono, color: muted });
   page.drawText('DATE', { x: 303, y: 158, size: 7.1, font: bold, color: muted });
-  const approvalDate = form.createTextField('it_approval_date');
-  approvalDate.addToPage(page, { x: 303, y: 124, width: 120, height: 27, font: regular, textColor: ink, backgroundColor: pale, borderColor: line, borderWidth: 0.7 });
+  page.drawRectangle({ x: 303, y: 124, width: 120, height: 27, color: pale, borderColor: line, borderWidth: 0.7 });
+  page.drawText('YYYY-MM-DD', { x: 313, y: 134, size: 7.5, font: mono, color: muted });
 
   page.drawRectangle({ x: 38, y: 69, width: 519, height: 38, color: navy });
   page.drawText('NEXT STEP', { x: 51, y: 92, size: 7, font: bold, color: rgb(0.50, 0.89, 0.84) });
   page.drawText('Retain this PDF and quote the request or Zoho ticket number when contacting MSBM IT Services.', { x: 51, y: 78, size: 7.9, font: regular, color: rgb(1, 1, 1) });
   page.drawText('MSBM IT Inventory System  |  The University of the West Indies, Mona', { x: 38, y: 38, size: 7, font: regular, color: muted });
   page.drawText(`Generated ${new Date().toISOString().slice(0, 10)}`, { x: 454, y: 38, size: 7, font: regular, color: muted, maxWidth: 103 });
-  form.updateFieldAppearances(regular);
   return document.save();
 }
 
