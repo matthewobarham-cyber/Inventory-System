@@ -157,7 +157,6 @@ async function createLoanRequestPdf(details: Array<[string, unknown]>, ticketNum
   const addSignatureField = (name: string, label: string, x: number) => {
     page.drawText(label, { x, y: 239, size: 7.1, font: bold, color: muted });
     const field = form.createTextField(name);
-    field.setFontSize(11);
     field.addToPage(page, { x, y: 193, width: 236, height: 38, font: regular, textColor: ink, backgroundColor: rgb(1, 1, 1), borderColor: line, borderWidth: 0.8 });
     page.drawText('Electronic signature / full legal name', { x: x + 8, y: 181, size: 6.6, font: regular, color: muted });
   };
@@ -166,11 +165,9 @@ async function createLoanRequestPdf(details: Array<[string, unknown]>, ticketNum
 
   page.drawText('DATE', { x: 38, y: 158, size: 7.1, font: bold, color: muted });
   const borrowerDate = form.createTextField('borrower_signature_date');
-  borrowerDate.setFontSize(9);
   borrowerDate.addToPage(page, { x: 38, y: 124, width: 120, height: 27, font: regular, textColor: ink, backgroundColor: pale, borderColor: line, borderWidth: 0.7 });
   page.drawText('DATE', { x: 303, y: 158, size: 7.1, font: bold, color: muted });
   const approvalDate = form.createTextField('it_approval_date');
-  approvalDate.setFontSize(9);
   approvalDate.addToPage(page, { x: 303, y: 124, width: 120, height: 27, font: regular, textColor: ink, backgroundColor: pale, borderColor: line, borderWidth: 0.7 });
 
   page.drawRectangle({ x: 38, y: 69, width: 519, height: 38, color: navy });
@@ -241,8 +238,10 @@ Deno.serve(async (request) => {
       return payload;
     };
 
-    const requiredSecrets = ['ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN', 'ZOHO_ORG_ID', 'ZOHO_DEPARTMENT_ID'];
+    const requiredSecrets = ['ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN', 'ZOHO_ORG_ID'];
     const missing = requiredSecrets.filter((name) => !Deno.env.get(name));
+    const inventoryDepartmentId = clean(Deno.env.get('ZOHO_INVENTORY_DEPARTMENT_ID') || Deno.env.get('ZOHO_DEPARTMENT_ID'));
+    if (!inventoryDepartmentId) missing.push('ZOHO_INVENTORY_DEPARTMENT_ID');
     if (missing.length) {
       const message = `Zoho Desk is not configured (${missing.join(', ')}).`;
       console.warn(JSON.stringify({ event: 'zoho_configuration_missing', requestId: recordId, missing }));
@@ -298,7 +297,7 @@ Deno.serve(async (request) => {
           headers: { ...zohoHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             subject: `[Equipment loan] ${itemName} — ${requesterName}`,
-            departmentId: Deno.env.get('ZOHO_DEPARTMENT_ID'),
+            departmentId: inventoryDepartmentId,
             email: requesterEmail,
             contact: {
               email: requesterEmail,
