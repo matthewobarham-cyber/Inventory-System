@@ -156,7 +156,7 @@ export const NAV = {
   Admin: ['dashboard', 'inventory', 'consumables', 'stocktakes', 'maintenance', 'lifecycle', 'disposal', 'loans', 'history', 'requests', 'alerts', 'orders', 'placements', 'scan', 'reports', 'settings'],
   'Student assistant': ['dashboard', 'inventory', 'consumables', 'stocktakes', 'maintenance', 'lifecycle', 'disposal', 'loans', 'history', 'alerts', 'orders', 'placements', 'scan'],
   Auditor: ['dashboard', 'inventory', 'consumables', 'stocktakes', 'maintenance', 'lifecycle', 'disposal', 'history', 'orders', 'placements', 'reports', 'settings'],
-  Staff: ['inventory', 'consumables', 'requests', 'history']
+  Staff: ['inventory', 'requests', 'history']
 };
 
 export const LABELS = {

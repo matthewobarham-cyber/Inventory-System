@@ -73,6 +73,56 @@ npx supabase functions deploy admin-reset-password
 These functions perform privileged Auth operations server-side. The
 service-role key is never shipped in the application.
 
+### 4a. Connect equipment requests to Zoho Desk
+
+New staff borrowing requests can create a Zoho Desk ticket automatically. The
+Zoho credentials belong in Supabase Edge Function secrets, never in `.env`,
+Vercel, or any `VITE_` variable.
+
+1. Sign in to the [Zoho API Console](https://api-console.zoho.com/) with the
+   account that owns the MSBM Desk organization.
+2. Create a **Self Client** and copy its Client ID and Client Secret.
+3. In **Generate Code**, use the scope `Desk.tickets.CREATE`, select the Zoho
+   Desk organization, and generate the short-lived authorization code.
+4. Immediately exchange that code for a refresh token. Replace the three
+   placeholders and run this in PowerShell as one line:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "https://accounts.zoho.com/oauth/v2/token" -Body @{ client_id="YOUR_CLIENT_ID"; client_secret="YOUR_CLIENT_SECRET"; grant_type="authorization_code"; code="YOUR_GENERATED_CODE" }
+```
+
+Copy `refresh_token` from the response. If your Zoho account uses another data
+centre, use its matching Accounts domain instead of `accounts.zoho.com`.
+
+5. In Zoho Desk, copy the numeric **organization ID** and the numeric
+   **department ID** that should receive equipment-loan tickets.
+6. Store the five values in the linked Supabase project:
+
+```powershell
+npx supabase secrets set ZOHO_CLIENT_ID="YOUR_CLIENT_ID"
+npx supabase secrets set ZOHO_CLIENT_SECRET="YOUR_CLIENT_SECRET"
+npx supabase secrets set ZOHO_REFRESH_TOKEN="YOUR_REFRESH_TOKEN"
+npx supabase secrets set ZOHO_ORG_ID="YOUR_ORGANIZATION_ID"
+npx supabase secrets set ZOHO_DEPARTMENT_ID="YOUR_DEPARTMENT_ID"
+npx supabase functions deploy zoho-loan-request
+```
+
+For a non-US Zoho data centre, also set both matching domains, for example:
+
+```powershell
+npx supabase secrets set ZOHO_ACCOUNTS_URL="https://accounts.zoho.eu" ZOHO_DESK_URL="https://desk.zoho.eu"
+```
+
+Optional secrets are `ZOHO_TICKET_STATUS`, `ZOHO_TICKET_PRIORITY`,
+`ZOHO_TICKET_CHANNEL`, and `ZOHO_TICKET_URL_TEMPLATE`. The URL template may use
+`{ticketId}` and `{ticketNumber}` placeholders.
+
+After deployment, submit one test request from a Staff account. It should show
+the Zoho ticket number in **My requests**, and the administrator Requests page
+will provide a **Retry Zoho** button if delivery fails. Zoho Desk should have an
+agent-notification rule enabled if the helpdesk mailbox should also receive an
+email whenever the API creates a ticket.
+
 ### 5. Create the first administrator
 
 In Supabase Dashboard, open **Authentication > Users > Add user** and create the

@@ -123,6 +123,21 @@ export async function resetSupabaseAccountPassword(email, password) {
   if (data?.error) throw new Error(data.error);
 }
 
+/** Create (or return) the Zoho Desk ticket linked to a saved borrowing request. */
+export async function createZohoLoanRequestTicket(requestId) {
+  const client = requireClient();
+  const { data, error } = await client.functions.invoke('zoho-loan-request', {
+    body: { requestId: String(requestId || '').trim() }
+  });
+  if (error) {
+    let detail = '';
+    try { detail = (await error.context?.json())?.error || ''; } catch { /* Use the SDK error below. */ }
+    throw new Error(detail || error.message || 'Zoho Desk could not be reached.');
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 export async function updateSupabaseProfile(email, changes) {
   const client = requireClient();
   const { data, error } = await client.from('profiles').update({ ...profileChanges(changes), updated_at: new Date().toISOString() }).eq('email', email.toLowerCase()).select().single();
@@ -467,6 +482,37 @@ export function saveSupabaseWorkspaceSnapshot(snapshot = {}, access = {}) {
       workspaceSortIndexes.delete(key);
     }));
     return { changed: changed.length, deleted: [...removedByType.values()].reduce((sum, ids) => sum + ids.length, 0) };
+  });
+  return workspaceSaveChain;
+}
+
+/** Persist Page Access immediately instead of waiting for the general workspace debounce. */
+export function saveSupabaseRoleNavigation(navOverrides = {}) {
+  workspaceSaveChain = workspaceSaveChain.catch(() => {}).then(async () => {
+    const client = requireClient();
+    const { data: { user }, error: userError } = await client.auth.getUser();
+    if (userError || !user) throw new Error('Sign in again before changing Page Access.');
+    const payload = Object.fromEntries(Object.entries(navOverrides).map(([role, screens]) => [
+      role,
+      Array.isArray(screens) ? Array.from(new Set(screens.map(String))) : []
+    ]));
+    const row = {
+      workspace_id: WORKSPACE_ID,
+      entity_type: WORKSPACE_SINGLETON_TYPES.navOverrides,
+      record_id: 'current',
+      payload,
+      sort_index: 0,
+      updated_by: user.id,
+      updated_at: new Date().toISOString()
+    };
+    const { error } = await client.from('workspace_records').upsert(row, {
+      onConflict: 'workspace_id,entity_type,record_id'
+    });
+    if (error) throw error;
+    const key = workspaceRecordKey(row.entity_type, row.record_id);
+    workspaceBaseline.set(key, workspaceRecordHash(row.payload, row.sort_index));
+    workspaceSortIndexes.set(key, row.sort_index);
+    return payload;
   });
   return workspaceSaveChain;
 }

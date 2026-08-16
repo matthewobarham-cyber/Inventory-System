@@ -14,7 +14,7 @@ import {
   createSupabaseAccount, resetSupabaseAccountPassword, updateSupabaseProfile, updateOwnSupabaseAvatar,
   requestSupabasePasswordReset, updateSupabasePassword, subscribeToPasswordRecovery, signOutSupabase,
   loadSupabaseCsvSnapshot, storeSupabaseCsvImport, loadSupabaseWorkspaceSnapshot,
-  saveSupabaseWorkspaceSnapshot, subscribeToSupabaseWorkspace
+  saveSupabaseWorkspaceSnapshot, saveSupabaseRoleNavigation, subscribeToSupabaseWorkspace, createZohoLoanRequestTicket
 } from './supabase.js';
 
 import Titlebar from './components/Titlebar.jsx';
@@ -44,7 +44,9 @@ const workspaceModuleLoaders = {
   ItemDetail: () => import('./components/ItemDetail.jsx'),
   Loans: () => import('./components/Loans.jsx'),
   LoanHistory: () => import('./components/LoanHistory.jsx'),
+  StaffLoanHistory: () => import('./components/StaffLoanHistory.jsx'),
   Requests: () => import('./components/Requests.jsx'),
+  StaffRequests: () => import('./components/StaffRequests.jsx'),
   Alerts: () => import('./components/Alerts.jsx'),
   PendingOrders: () => import('./components/PendingOrders.jsx'),
   PlacementQueue: () => import('./components/PlacementQueue.jsx'),
@@ -65,7 +67,9 @@ const Consumables = lazy(workspaceModuleLoaders.Consumables);
 const ItemDetail = lazy(workspaceModuleLoaders.ItemDetail);
 const Loans = lazy(workspaceModuleLoaders.Loans);
 const LoanHistory = lazy(workspaceModuleLoaders.LoanHistory);
+const StaffLoanHistory = lazy(workspaceModuleLoaders.StaffLoanHistory);
 const Requests = lazy(workspaceModuleLoaders.Requests);
+const StaffRequests = lazy(workspaceModuleLoaders.StaffRequests);
 const Alerts = lazy(workspaceModuleLoaders.Alerts);
 const PendingOrders = lazy(workspaceModuleLoaders.PendingOrders);
 const PlacementQueue = lazy(workspaceModuleLoaders.PlacementQueue);
@@ -103,7 +107,9 @@ const normalizeNavOverrides = (stored = {}) => Object.fromEntries(Object.entries
   const source = Array.isArray(stored?.[role]) ? stored[role] : defaults;
   const hadLegacyAdministration = source.includes('imports') || source.includes('users');
   const migrated = hadLegacyAdministration && !source.includes('settings') ? [...source, 'settings'] : source;
-  const allowed = migrated.filter((screen) => LABELS[screen] && !['imports', 'users'].includes(screen));
+  const allowed = migrated.filter((screen) => LABELS[screen]
+    && !['imports', 'users'].includes(screen)
+    && !(role === 'Staff' && screen === 'consumables'));
   if (role === 'Admin' && !allowed.includes('settings')) allowed.push('settings');
   return [role, Array.from(new Set(allowed))];
 }));
@@ -1955,7 +1961,7 @@ export default function App() {
     setItems((prev) => prev.map((x) => (x.id === ciItem ? { ...x, status: nextStatus, condition: ciForm.condition, borrower: null, issuedBy: null, issuedByEmail: null, due: null, since: null, loanExtensions: [] } : x)));
     setHistory((prev) => [{
       id: 'h' + Date.now(), itemId: it.id, model: it.model, name: it.name, tag: it.tag,
-      borrower: it.borrower, issuedBy: it.issuedBy || session.name, out: it.since, due: it.due, back: iso(today()),
+      borrower: it.borrower, borrowerEmail: it.borrowerEmail || it.loanAgreement?.borrowerEmail || '', issuedBy: it.issuedBy || session.name, out: it.since, due: it.due, back: iso(today()),
       room: it.location + ' · ' + it.room, condition: ciForm.outcome,
       returnCondition: ciForm.condition, accessories: ciForm.accessories, disposition: ciForm.disposition,
       returnNotes: (ciForm.notes || '').trim(), checkedInBy: session.name, loanExtensions: asArray(it.loanExtensions)
@@ -1984,11 +1990,45 @@ export default function App() {
       toast('You already have a pending request for this item');
       return;
     }
-    setRequests((prev) => [{
+    const loanRequest = {
       id: 'rq' + Date.now(), itemId: requestedItem.id, itemName: requestedItem.name, itemTag: requestedItem.tag, model: requestedItem.model, by: session.name, byEmail: session.email,
-      statusSnapshot: requestedItem.status, when: 'Requested just now', submittedOn: iso(today()), need: 'Awaiting IT approval', state: 'Pending', workflowUnread: screen !== 'requests'
-    }, ...prev]);
-    toast('Request sent for ' + requestedItem.name, { tone: 'success' });
+      statusSnapshot: requestedItem.status, when: 'Requested just now', submittedOn: iso(today()), need: 'Awaiting IT approval', state: 'Pending', workflowUnread: screen !== 'requests',
+      helpdeskStatus: cloudSession ? 'Sending' : 'Local only'
+    };
+    const nextRequests = [loanRequest, ...requests];
+    setRequests(nextRequests);
+    toast(cloudSession ? `Request recorded for ${requestedItem.name} — creating the helpdesk ticket` : `Request sent for ${requestedItem.name}`, { tone: 'success' });
+    if (cloudSession) void (async () => {
+      try {
+        // Make the request durable before the server-side integration reads it.
+        await saveSupabaseWorkspaceSnapshot({ ...currentSharedWorkspace, requests: nextRequests }, {
+          role: session?.role,
+          email: session?.email
+        });
+        const result = await createZohoLoanRequestTicket(loanRequest.id);
+        if (result?.request) setRequests((current) => current.map((entry) => entry.id === loanRequest.id ? result.request : entry));
+        toast(result?.ticketCreated
+          ? `Request sent — Zoho ticket #${result.ticketNumber || result.ticketId} created`
+          : 'Your request is saved. Zoho delivery needs attention from IT.', { tone: result?.ticketCreated ? 'success' : 'warning' });
+      } catch (error) {
+        console.error('Zoho loan request delivery failed', error);
+        setRequests((current) => current.map((entry) => entry.id === loanRequest.id ? { ...entry, helpdeskStatus: 'Failed', helpdeskError: error.message } : entry));
+        toast('Your request is saved. Zoho delivery needs attention from IT.', { tone: 'warning' });
+      }
+    })();
+  };
+  const retryLoanHelpdeskTicket = async (id) => {
+    const target = requests.find((request) => request.id === id);
+    if (!target || target.type === 'Requisition') return;
+    setRequests((current) => current.map((request) => request.id === id ? { ...request, helpdeskStatus: 'Sending', helpdeskError: '' } : request));
+    try {
+      const result = await createZohoLoanRequestTicket(id);
+      if (result?.request) setRequests((current) => current.map((request) => request.id === id ? result.request : request));
+      toast(result?.ticketCreated ? `Zoho ticket #${result.ticketNumber || result.ticketId} is linked` : 'Zoho delivery is still unavailable', { tone: result?.ticketCreated ? 'success' : 'warning' });
+    } catch (error) {
+      setRequests((current) => current.map((request) => request.id === id ? { ...request, helpdeskStatus: 'Failed', helpdeskError: error.message } : request));
+      toast('Zoho delivery is still unavailable', { tone: 'warning' });
+    }
   };
   const approveRequest = (id) => {
     const r = requests.find((x) => x.id === id);
@@ -2296,12 +2336,16 @@ export default function App() {
   const updateRoleAccess = (targetRole, targetScreen, enabled) => {
     if (!isAdmin) return false;
     if (targetScreen === 'settings' && targetRole === 'Admin') return false;
-    setNavOverrides((current) => ({
-      ...current,
-      [targetRole]: enabled
-        ? Array.from(new Set([...(current[targetRole] || []), targetScreen]))
-        : (current[targetRole] || []).filter((entry) => entry !== targetScreen)
-    }));
+    if (targetScreen === 'consumables' && targetRole === 'Staff') return false;
+    const nextRoleScreens = enabled
+      ? Array.from(new Set([...(navOverrides[targetRole] || []), targetScreen]))
+      : (navOverrides[targetRole] || []).filter((entry) => entry !== targetScreen);
+    const nextNavigation = { ...navOverrides, [targetRole]: nextRoleScreens };
+    setNavOverrides(nextNavigation);
+    if (cloudSession) void saveSupabaseRoleNavigation(nextNavigation).catch((error) => {
+      console.error('Page Access save failed', error);
+      toast('Page Access could not be saved to Supabase. Please try again.', { tone: 'warning' });
+    });
     logAudit('Role page access updated', `${targetRole}: ${LABELS[targetScreen]?.[0] || targetScreen} ${enabled ? 'enabled' : 'disabled'}`);
     toast(`${LABELS[targetScreen]?.[0] || targetScreen} ${enabled ? 'enabled for' : 'removed from'} ${targetRole}`);
     return true;
@@ -2851,10 +2895,14 @@ export default function App() {
               <Loans items={activeItems} canReturn={canLoanNow} sender={session} emailContacts={loanEmailContacts} onAddEmailContact={addLoanContact} onEmailPrepared={markLoanEmailPrepared} onOpenItem={openItem} onCheckIn={openCheckIn} onExtendLoan={extendLoan} onPreviewAgreement={(agreement) => setCheckoutAgreement(agreement)} />
             </WorkspacePanel>}
             {availableScreens.includes('history') && <WorkspacePanel name="history" activeScreen={screen}>
-              <LoanHistory history={history} stillOutCount={onLoan.length} isStaff={isStaff} sessionName={session.name} query={filters.query} onOpenItem={openItem} />
+              {isStaff
+                ? <StaffLoanHistory history={history} items={activeItems} session={session} onOpenItem={openItem} onBrowse={() => goScreen('inventory')} />
+                : <LoanHistory history={history} stillOutCount={onLoan.length} isStaff={false} sessionName={session.name} query={filters.query} onOpenItem={openItem} />}
             </WorkspacePanel>}
             {availableScreens.includes('requests') && <WorkspacePanel name="requests" activeScreen={screen}>
-              <Requests requests={requests} role={role} sessionName={session.name} focusRequestId={dashboardRequestFocus.id} focusNonce={dashboardRequestFocus.nonce} onApprove={approveRequest} onDecline={declineRequest} onAcknowledge={(id) => acknowledgeWorkflowRecord('requests', id)} />
+              {isStaff
+                ? <StaffRequests requests={requests} session={session} onOpenItem={openItem} onBrowse={() => goScreen('inventory')} />
+                : <Requests requests={requests} role={role} sessionName={session.name} focusRequestId={dashboardRequestFocus.id} focusNonce={dashboardRequestFocus.nonce} onApprove={approveRequest} onDecline={declineRequest} onRetryHelpdesk={retryLoanHelpdeskTicket} onAcknowledge={(id) => acknowledgeWorkflowRecord('requests', id)} />}
             </WorkspacePanel>}
             {availableScreens.includes('alerts') && <WorkspacePanel name="alerts" activeScreen={screen}>
               <Alerts items={activeItems} pendingOrders={pendingOrders} pendingPlacements={pendingPlacements} canEdit={canEdit} onOpenItem={openItem} onReorder={openReorder} onViewOrder={(id) => setOrderDetailsId(id)} onOpenPlacements={() => goScreen('placements')} />
