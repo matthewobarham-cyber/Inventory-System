@@ -384,6 +384,33 @@ export async function loadSupabaseWorkspaceSnapshot() {
 }
 
 /**
+ * Refresh one workspace collection without rehydrating the entire application.
+ * This is used by personal Staff views as a small fallback when a browser or
+ * network temporarily delays a Realtime notification.
+ */
+export async function loadSupabaseWorkspaceRecords(entityType) {
+  const client = requireClient();
+  const normalizedType = String(entityType || '').trim();
+  if (!normalizedType || !Object.values(WORKSPACE_ARRAY_TYPES).includes(normalizedType)) {
+    throw new Error('That workspace record type cannot be refreshed.');
+  }
+  const { data, error } = await client
+    .from('workspace_records')
+    .select('entity_type, record_id, payload, sort_index')
+    .eq('workspace_id', WORKSPACE_ID)
+    .eq('entity_type', normalizedType)
+    .order('sort_index', { ascending: true });
+  if (error) throw error;
+  (data || []).forEach((row) => {
+    const sortIndex = Number(row.sort_index || 0);
+    const key = workspaceRecordKey(row.entity_type, row.record_id);
+    workspaceBaseline.set(key, workspaceRecordHash(row.payload, sortIndex));
+    workspaceSortIndexes.set(key, sortIndex);
+  });
+  return (data || []).map((row) => ({ ...row.payload }));
+}
+
+/**
  * Persist only changed entity rows. Independent records are upserted separately,
  * preventing an asset edit on one device from replacing an unrelated loan or
  * stocktake created on another device.

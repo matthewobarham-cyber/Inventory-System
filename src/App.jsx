@@ -14,7 +14,8 @@ import {
   createSupabaseAccount, resetSupabaseAccountPassword, updateSupabaseProfile, updateOwnSupabaseAvatar,
   requestSupabasePasswordReset, updateSupabasePassword, subscribeToPasswordRecovery, signOutSupabase,
   loadSupabaseCsvSnapshot, storeSupabaseCsvImport, loadSupabaseWorkspaceSnapshot,
-  saveSupabaseWorkspaceSnapshot, saveSupabaseRoleNavigation, subscribeToSupabaseWorkspace, createZohoLoanRequestTicket
+  loadSupabaseWorkspaceRecords, saveSupabaseWorkspaceSnapshot, saveSupabaseRoleNavigation,
+  subscribeToSupabaseWorkspace, createZohoLoanRequestTicket
 } from './supabase.js';
 
 import Titlebar from './components/Titlebar.jsx';
@@ -764,7 +765,26 @@ export default function App() {
     if (!cloudSession || !sharedWorkspaceConnected) return undefined;
     let cancelled = false;
     let reloadTimer = null;
-    const unsubscribe = subscribeToSupabaseWorkspace(() => {
+    let requestRefreshTimer = null;
+    const refreshStaffRequests = async () => {
+      if (session?.role !== 'Staff' || document.visibilityState === 'hidden') return;
+      try {
+        const latestRequests = await loadSupabaseWorkspaceRecords('requests');
+        if (!cancelled) setRequests(latestRequests);
+      } catch (error) {
+        console.error('Staff request refresh failed', error);
+      }
+    };
+    const unsubscribe = subscribeToSupabaseWorkspace((change) => {
+      const changedRequest = change.new?.entity_type === 'requests' ? change.new?.payload : null;
+      const removedRequestId = change.old?.entity_type === 'requests' ? change.old?.record_id : '';
+      if (session?.role === 'Staff' && changedRequest?.id) {
+        setRequests((current) => current.some((request) => request.id === changedRequest.id)
+          ? current.map((request) => request.id === changedRequest.id ? { ...changedRequest } : request)
+          : [{ ...changedRequest }, ...current]);
+      } else if (session?.role === 'Staff' && removedRequestId) {
+        setRequests((current) => current.filter((request) => request.id !== removedRequestId));
+      }
       if (reloadTimer) clearTimeout(reloadTimer);
       reloadTimer = setTimeout(async () => {
         try {
@@ -781,9 +801,21 @@ export default function App() {
         }
       }, 500);
     }, session?.id);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refreshStaffRequests();
+    };
+    if (session?.role === 'Staff') {
+      window.addEventListener('focus', refreshWhenVisible);
+      document.addEventListener('visibilitychange', refreshWhenVisible);
+      requestRefreshTimer = setInterval(refreshStaffRequests, 12000);
+      void refreshStaffRequests();
+    }
     return () => {
       cancelled = true;
       if (reloadTimer) clearTimeout(reloadTimer);
+      if (requestRefreshTimer) clearInterval(requestRefreshTimer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
       unsubscribe();
     };
   }, [cloudSession, sharedWorkspaceConnected, session?.id, session?.role, session?.email, applySharedWorkspace]);
@@ -1986,7 +2018,10 @@ export default function App() {
       toast('This item is not eligible for borrowing');
       return;
     }
-    if (requests.some((request) => request.itemId === requestedItem.id && request.byEmail === session.email && request.state === 'Pending')) {
+    const requesterEmail = String(session.email || '').trim().toLowerCase();
+    if (requests.some((request) => request.itemId === requestedItem.id
+      && String(request.byEmail || '').trim().toLowerCase() === requesterEmail
+      && String(request.state || '').trim().toLowerCase() === 'pending')) {
       toast('You already have a pending request for this item');
       return;
     }
@@ -2069,7 +2104,17 @@ export default function App() {
     if (!r || r.state !== 'Pending') return false;
     if (explanation.length < 3) { toast('Enter a reason for declining this request'); return false; }
     const declinedOn = iso(today());
-    setRequests((prev) => prev.map((x) => (x.id === id ? { ...x, state: 'Declined', declineReason: explanation, declinedBy: session.name, declinedOn } : x)));
+    const nextRequests = requests.map((x) => (x.id === id ? { ...x, state: 'Declined', declineReason: explanation, declinedBy: session.name, declinedOn } : x));
+    setRequests(nextRequests);
+    if (cloudSession) {
+      void saveSupabaseWorkspaceSnapshot({ ...(currentSharedWorkspaceRef.current || currentSharedWorkspace), requests: nextRequests }, {
+        role: session?.role,
+        email: session?.email
+      }).catch((error) => {
+        console.error('Request decision synchronization failed', error);
+        toast('Declined locally, but the staff update is still retrying.', { tone: 'warning' });
+      });
+    }
     logAudit(r.type === 'Requisition' ? 'Requisition declined' : 'Borrow request declined', `${r.itemName} requested by ${r.by}; reason: ${explanation}`);
     if (r) toast('Declined — ' + r.itemName);
     return true;

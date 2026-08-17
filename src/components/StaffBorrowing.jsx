@@ -8,7 +8,13 @@ export default function StaffBorrowing({ items, requests = [], session, initialQ
   const [query, setQuery] = useState(initialQuery);
   const [category, setCategory] = useState('All equipment');
   const [page, setPage] = useState(1);
-  const pendingIds = useMemo(() => new Set(requests.filter((request) => request.byEmail === session?.email && request.state === 'Pending').map((request) => request.itemId)), [requests, session?.email]);
+  const pendingIds = useMemo(() => {
+    const requesterEmail = String(session?.email || '').trim().toLowerCase();
+    return new Set(requests.filter((request) =>
+      String(request.byEmail || '').trim().toLowerCase() === requesterEmail
+      && String(request.state || '').trim().toLowerCase() === 'pending'
+    ).map((request) => request.itemId));
+  }, [requests, session?.email]);
   const availableItems = useMemo(() => items.filter((item) => item.status === 'In stock' && Number(item.qty || 0) > 0 && !item.archived && !item.consumable), [items]);
   const categories = useMemo(() => ['All equipment', ...Array.from(new Set(availableItems.map((item) => item.category || 'Other equipment'))).sort()], [availableItems]);
   const visible = useMemo(() => {
